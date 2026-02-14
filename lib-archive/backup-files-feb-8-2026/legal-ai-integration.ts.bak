@@ -1,0 +1,235 @@
+/**
+ * Legal AI Integration Service
+ * Connects gaming-inspired frontend with QUIC/HTTP3 backend services
+ * Integrates with Visual Memory Palace and N64 texture streaming
+ */
+
+import type { MemoryRoom } from '$lib/3d/memory-palace-engine';
+
+// API Endpoints
+const API_ENDPOINTS = {
+  // Document Analysis
+  analyzeDocument: '/api/legal/analyze',
+  classifyDocument: '/api/legal/classify',
+  extractEntities: '/api/legal/entities',
+  generateSummary: '/api/legal/summary',
+  // Evidence Processing
+  processEvidence: '/api/evidence/process',
+  generateEmbedding: '/api/evidence/embed',
+  calculateSimilarity: '/api/evidence/similarity',
+  chainOfCustody: '/api/evidence/custody',
+  // Case Management
+  createCase: '/api/cases/create',
+  updateCase: '/api/cases/update',
+  searchCases: '/api/cases/search',
+  getCaseTimeline: '/api/cases/timeline',
+  // AI Assistant
+  chatWithAI: '/api/ai/chat',
+  getRecommendations: '/api/ai/recommendations',
+  generateBrief: '/api/ai/brief',
+  reviewContract: '/api/ai/contract-review',
+  // Memory Palace Integration
+  createMemoryRoom: '/api/memory-palace/rooms',
+  updateRoomContent: '/api/memory-palace/rooms/{id}/content',
+  getRoomDocuments: '/api/memory-palace/rooms/{id}/documents',
+  optimizePalaceLayout: '/api/memory-palace/optimize',
+  // Performance & Analytics
+  getPerformanceMetrics: '/api/metrics/performance',
+  getUsageAnalytics: '/api/metrics/usage',
+  generateReport: '/api/reports/generate'
+} as const;
+
+// Response interface
+export interface LegalAIResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  metadata?: {
+    timestamp: string;
+    processingTime: number;
+    model?: string;
+    confidence?: number;
+  };
+}
+
+export interface LegalDocument {
+  id: string;
+  title?: string;
+  type?: string;
+  content?: string;
+  metadata: Record<string, unknown>;
+  embedding?: Float32Array;
+}
+
+// Document analysis result
+export interface DocumentAnalysisResult {
+  id: string;
+  classification: {
+    type: 'evidence' | 'contract' | 'brief' | 'citation';
+    confidence: number;
+    subcategory?: string;
+  };
+  entities: Array<{ type: 'person' | 'organization' | 'date' | 'location' | 'legal_term';
+    value: string;
+    confidence?: number;
+    position?: [number, number]
+  }>;
+  summary: string;
+  priority: number;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  embedding?: Float32Array;
+}
+
+// Case data interface
+export interface CaseData {
+  id: string;
+  title?: string;
+  description?: string;
+  status: 'open' | 'in_progress' | 'closed' | 'on_hold';
+  priority?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  documents?: LegalDocument[];
+  parties?: Array<{
+    name: string;
+    role: 'plaintiff' | 'defendant' | 'witness' | 'attorney';
+    contact?: string;
+  }>;
+  timeline?: Array<{
+    date: string;
+    event: string;
+    type: 'filing' | 'hearing' | 'discovery' | 'settlement' | 'judgment';
+  }>;
+}
+
+// Cache system interface
+interface CacheSystem {
+  get<T>(key: string, layer?: string): Promise<T | null>;
+  set(key: string, data: unknown, layer?: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): void;
+  getStats(): Record<string, unknown>;
+  cacheDocument(key: string, data: unknown): Promise<void>
+}
+
+// Texture system interface
+interface TextureSystem {
+  generateDocumentTexture(
+    id: string,
+
+    content: string,
+
+    priority: number,
+
+    type: string
+  ): void;
+  getMemoryUsage(): Record<string, unknown>;
+  destroy(): void;
+}
+
+export class LegalAIIntegrationService {
+  private cache: CacheSystem;
+  private textures: TextureSystem;
+
+  constructor(cacheSystem: CacheSystem, textureSystem: TextureSystem) {
+    this.cache = cacheSystem;
+    this.textures = textureSystem;
+  }
+
+  async analyzeDocument(
+    documentId: string,
+    content: string
+  ): Promise<LegalAIResponse<DocumentAnalysisResult>> {
+    try {
+      // Check cache first
+      const cached = await this.cache.get<DocumentAnalysisResult>(`analysis:${documentId}`);
+      if (cached) {
+        return { success: true, data: cached };
+      }
+
+      const response = await fetch(API_ENDPOINTS.analyzeDocument, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: documentId, content })
+      });
+
+      if (!response.ok) throw new Error('Analysis failed');
+
+      const result: LegalAIResponse<DocumentAnalysisResult> = await response.json();
+
+      if (result.success && result.data) {
+        await this.cache.set(`analysis:${documentId}`, result.data);
+        // Generate texture for visual memory palace
+        this.textures.generateDocumentTexture(
+          documentId,
+          content,
+          result.data.priority,
+          result.data.classification.type
+        );
+      }
+
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  async createCase(caseData: Partial<CaseData>): Promise<LegalAIResponse<CaseData>> {
+    try {
+      const response = await fetch(API_ENDPOINTS.createCase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(caseData)
+      });
+
+      if (!response.ok) throw new Error('Case creation failed');
+      return await response.json();
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  // Helper to integrate with Memory Palace
+  async syncToMemoryPalace(
+    caseId: string,
+    roomId: string
+  ): Promise<LegalAIResponse<MemoryRoom>> {
+    try {
+      // Get case documents
+      const response = await fetch(`${API_ENDPOINTS.searchCases}?id=${caseId}`);
+      if (!response.ok) throw new Error('Failed to fetch case');
+      const caseResult: LegalAIResponse<CaseData> = await response.json();
+
+      if (!caseResult.data) throw new Error('Case data not found');
+
+      // Update Memory Palace room
+      const roomResponse = await fetch(
+        API_ENDPOINTS.updateRoomContent.replace('{id}', roomId),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({, documents: caseResult.data.documents?.map((doc) => ({
+              id: doc.id,
+              metadata: doc.metadata,
+              // We don't send full content to layout engine
+            }))
+          })
+        }
+      );
+
+      if (!roomResponse.ok) throw new Error('Memory Palace sync failed');
+      return await roomResponse.json();
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+}

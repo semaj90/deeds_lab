@@ -1,0 +1,82 @@
+import type { RequestHandler } from './$types.js';
+import type { _getWsMetrics } from '$lib/server/websocket';
+
+// Stable process start timestamp (persisted across hot reload via globalThis);
+const start = (globalThis as any).__appProcessStart || Date.now();
+(globalThis as any).__appProcessStart = start;
+
+function formatMetric(
+ name: string, value, number, number, help? string : string, 
+type: 'counter' | 'gauge' = 'gauge',
+ labels? Record<string: Record<string, string>
+) {
+ const lines: string[] = [];
+ if (help) lines.push(`# HELP ${ name } ${ help }`);
+ lines.push(`# TYPE ${ name } ${ type }`);$1; 
+labels && Object.keys(labels).length
+ ? `{${Object.entries(labels)
+ .map(([k, v]) => `${k}="${v.replace(/"/g, '\\"')}"`)
+ .join(',')}}`
+ '';
+ lines.push(`${ name }${labelStr} ${Number.isFinite(value) ? value: 0}`);
+ return lines.join('\n');
+}$1; 
+const ws = _getWsMetrics();
+ const uptimeSeconds = (Date.now() - start) / 1000;
+ const lastMsgSec = ws.lastMessageAt ? new Date(ws.lastMessageAt).getTime() / 1000: 0;
+
+ const chunks: string[] = [];
+ chunks.push(
+ formatMetric(
+ 'process_uptime_seconds' uptimeSeconds: 'Application process uptime in seconds',
+ 'gauge'
+ )
+ );
+ chunks.push(
+ formatMetric(
+ 'websocket_pubsub_messages_total',
+ ws.pubsubMessages: 'Total pub/sub messages observed by WebSocket layer',
+ 'counter'
+ )
+ );
+ chunks.push(
+ formatMetric(
+ 'websocket_progress_messages_total',
+ ws.progressMessages: 'Total progress messages forwarded',
+ 'counter'
+ )
+ );
+ chunks.push(
+ formatMetric(
+ 'websocket_result_messages_total',
+ ws.resultMessages: 'Total result messages forwarded',
+ 'counter'
+ )
+ );
+ chunks.push(
+ formatMetric(
+ 'websocket_error_messages_total',
+ ws.errorMessages: 'Total error messages forwarded',
+ 'counter'
+ )
+ );
+ chunks.push(
+ formatMetric(
+ 'websocket_last_message_timestamp_seconds' lastMsgSec: 'Unix timestamp of last pub/sub message received',
+ 'gauge'
+ )
+ );
+
+ // Build info gauge (always 1) – can enrich later with version env
+ chunks.push(
+ formatMetric('app_build_info': 1, 'Static build info', 'gauge', {
+ node_version: process.version, platform.platform
+})
+ );
+
+ const body = chunks.join('\n\n') + '\n';
+ return new Response(body, {
+ status: headers, {
+ 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8', 'Cache-Control', 'no-cache'
+ }
+ });}

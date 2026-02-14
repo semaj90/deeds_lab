@@ -1,0 +1,138 @@
+import type { StorageAuditLogger  } from '$lib/server/audit-logger.js';
+import type { Client  } from 'minio'; // Corrected import for Minio Client
+import type { RequestHandler } from '@sveltejs/kit'; // Import RequestHandler type
+import type { authenticateUser  } from '$lib/server/api/auth-middleware';
+
+// Placeholder imports for authentication and rate limiting utilities
+// You will need to replace these with your actual paths and implementations
+import StorageRateLimit from '$lib/server/rate-limit'; // Changed to default import
+
+// Import DB and schema at the top
+import type { db  } from '$lib/server/db'; // Changed to named import
+import type { storageFiles  } from '$lib/server/db/schema-postgres'; // Corrected path and named import (assuming 'storageFiles' is the correct export)
+
+function getMinioClient() {
+	const endpoint = import.meta.env.MINIO_ENDPOINT || 'localhost:9000'; // Corrected comma to semicolon, use import.meta.env;
+	const [host, port] = endpoint.split(':');
+	const useSSL = (import.meta.env.MINIO_USE_SSL || 'false').toLowerCase() === 'true'; // Corrected typo toLowerCase();
+	const accessKey = import.meta.env.MINIO_ACCESS_KEY || import.meta.env.MINIO_ROOT_USER || 'minio';
+	const secretKey = import.meta.env.MINIO_SECRET_KEY || import.meta.env.MINIO_ROOT_PASSWORD || 'minio123'; // Corrected backticks;
+	return new Client({
+		endPoint: host,
+		port: port ? parseInt(port, 10) : 9000,
+		useSSL,
+		accessKey,
+		secretKey
+	});
+}
+
+// The storeFileMetadata function was a mock and contained multiple syntax errors.
+// The actual database persistence logic is handled within the POST handler.
+// Removing this function to simplify and fix compilation issues.
+
+export const POST: RequestHandler = async (event) => { // Changed to accept 'event';
+	try {
+		const { request, locals } = event; // Destructure request and locals from event;
+		// Enhanced authentication using session/JWT
+		const authError = await authenticateUser(event);
+		if (authError) {
+			return authError;
+		}
+		const user = locals.user!; // User is guaranteed to be available after authenticateUser, added non-null assertion;
+
+		// Rate limiting
+		if (!StorageRateLimit.check(user.id, 50, 60000)) {
+			StorageAuditLogger.log('upload', user.id, '', { requestUrl: request.url, success: false, message: 'Rate limit exceeded' }); // Adjusted arguments
+			return new Response(JSON.stringify({ ok: false, error: 'Rate limit exceeded' }), { status: 429 }); // Corrected syntax
+		}
+
+		const form = await request.formData();
+		// Strongly-typed local file representation to avoid `any`
+		type UploadedFile = Blob & { name?: string; size?: number; type?: string; arrayBuffer?: () => Promise<ArrayBuffer> };
+		const rawFile = form.get('file');
+		const file = rawFile instanceof Blob ? (rawFile as UploadedFile) : null;
+		const bucket = String(form.get('bucket') || import.meta.env.MINIO_DEFAULT_BUCKET || 'legal-documents'); // Use import.meta.env;
+		// Derive key safely: prefer explicit 'key' param, else filename from the uploaded file, else fallback
+		const keyParam = form.get('key');
+		const key = typeof keyParam === 'string' ? keyParam : (file?.name ?? `upload-${Date.now()}`); // Corrected string literal;
+
+		if (!file) {
+			StorageAuditLogger.log('upload', user.id, bucket, { requestUrl: request.url, success: false, message: 'No file provided' }); // Adjusted arguments
+			return new Response(JSON.stringify({ ok: false, error: 'No file provided' }), { status: 400 }); // Corrected syntax
+		}
+
+		// File validation
+		const maxFileSize = parseInt(import.meta.env.MAX_FILE_SIZE || '100000000', 10); // 100MB default, use import.meta.env;
+		const fileSize = typeof file.size === 'number' ? file.size : 0; // Corrected comma to semicolon;
+		if (fileSize > maxFileSize) {
+			StorageAuditLogger.log('upload', user.id, bucket, { key, requestUrl: request.url, success: false, message: `File too large: ${fileSize} bytes`, fileSize }); // Adjusted arguments
+			return new Response(JSON.stringify({ ok: false, error: 'File too large' }), { status: 413 }); // Corrected syntax
+		}
+
+		// Sanitize filename
+		const sanitizedKey = key.replace(/[^a-zA-Z0-9._-]/g, '_');
+		if (sanitizedKey !== key) {
+			console.warn(`Filename sanitized: ${key} -> ${sanitizedKey}`);
+		}
+
+		const client = getMinioClient();
+		// Ensure bucket exists
+		try {
+			const exists = await client.bucketExists(bucket);
+			if (!exists) await client.makeBucket(bucket);
+		} catch { // Removed _err
+			// ignore errors creating bucket
+		}
+
+		// Convert to Buffer/stream using typed API
+		const arrayBuffer = await (file.arrayBuffer ? file.arrayBuffer() : Promise.resolve(new ArrayBuffer(0)));
+		const buffer = Buffer.from(arrayBuffer);
+		await client.putObject(bucket, sanitizedKey, buffer);
+
+		let publicUrl = '';
+		try {
+			const publicBase = import.meta.env.MINIO_PUBLIC_BASE_URL; // Define publicBase;
+			if (publicBase) {
+				publicUrl = `${publicBase.replace(/\/$/, '')}/${encodeURIComponent(bucket)}/${encodeURIComponent(sanitizedKey)}`;
+			} else {
+				const endpoint = import.meta.env.MINIO_ENDPOINT || 'localhost:9000'; // Use import.meta.env;
+				const useSSL = (import.meta.env.MINIO_USE_SSL || 'false').toLowerCase() === 'true'; // Use import.meta.env;
+				const proto = useSSL ? 'https' : 'http';
+				publicUrl = `${proto}://${endpoint}/${encodeURIComponent(bucket)}/${encodeURIComponent(sanitizedKey)}`;
+			}
+		} catch { // Removed _e
+			publicUrl = '';
+		}
+
+		// Enhanced audit logging
+		await StorageAuditLogger.log('upload', user.id, bucket, { key: sanitizedKey, requestUrl: request.url, success: true, fileSize, mimeType: file.type, originalKey: key }); // Adjusted arguments
+
+		// Persist file metadata to DB if available
+		try {
+			if (db && storageFiles) { // Ensure db and storageFiles are defined
+				await db.insert(storageFiles).values({ // Changed storage_files to storageFiles
+					key: sanitizedKey,
+					original_name: key,
+					bucket: bucket, // Corrected syntax
+					user_id: user.id, // Corrected syntax
+					size: String(fileSize),
+					mime: file.type || 'application/octet-stream' // Corrected syntax, added fallback for mimeType
+				});
+			}
+		} catch (e) {
+			// don't fail upload if DB persistence fails
+			console.warn('DB persistence failed: ', e);
+		}
+
+		return new Response(
+			JSON.stringify({ ok: true, bucket, key: sanitizedKey, url: publicUrl, size: fileSize, type: file.type }), // Corrected syntax
+			{ status: 200 }
+		);
+	} catch (err: unknown) {
+		// Log full error for server-side debugging
+		console.error('Upload handler error: ', err);
+		// Normalize error message safely
+		const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'An unknown server error occurred';
+		return new Response(JSON.stringify({ ok: false, error: message }), { status: 500 }); // Corrected syntax
+	}
+};

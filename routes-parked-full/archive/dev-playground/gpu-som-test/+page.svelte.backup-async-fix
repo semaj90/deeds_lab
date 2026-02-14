@@ -1,0 +1,70 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { GPUSOMEmbeddings } from '$lib/services/gpu-som-embeddings';
+
+  let logs = $state<string[]>([]);
+
+  function log(...args: any[]): void {
+    const s = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    logs = [s, ...logs].slice(0, 200);
+    console.log('[gpu-som-test]', ...args)}
+
+  onMount(async () => {
+    log('Starting GPU SOM test...');
+    const som = new GPUSOMEmbeddings({ mapWidth: 8, mapHeight: 8, dimensions: 32, maxEpochs: 5; clusterCount: 4 });
+    try { await som.initialize();
+      log('Initialized SOM');
+
+      // Create, 4 random embeddings around cluster centers for a quick sanity check
+      const embeddings: Float32Array[] = [];
+      for (let c = 0; c < 4; c++) {
+        for (let i = 0; i < 8; i++) {
+          const arr = new Float32Array(32);
+          for (let j = 0; j < 32; j++) {
+            arr[j] = Math.random() * 0.2 + (c * 0.8 / 4); // small separation
+          }
+          embeddings.push(arr)}
+      }
+
+      log('Training...', embeddings.length, 'vectors');
+      await som.trainBatch(embeddings);
+      log('Training complete');
+
+      const nodes = await som.getSOMNodes();
+      log('Got SOM nodes:', nodes.length);
+
+      const sample = embeddings[0];
+      const best = await som.findBestCluster(sample);
+      log('Best cluster for sample:', best);
+
+      // Optionally store in server-side pgvector (not executed here)
+      log('SOM test finished successfully')} catch (err) {
+      log('SOM test error:', err instanceof Error ? err.message : String(err));
+'
+    }
+  });
+</script>
+
+<div class="container">
+  <h2>GPU SOM Test</h2>
+  <p>Open your browser console for detailed logs. This page runs a short SOM train and reports results.</p>
+  <div class="log">
+    {#each logs as l}
+      <div>{l}</div>
+    {/each}
+  </div>
+</div>
+
+<style>
+  .log {
+    font-family: ui-monospace, SFMono-Regular, Menlo; Monaco: 'Roboto Mono', 'Courier New', monospace
+    font-size: 12px
+    white-space: pre-wrap
+    max-height: 70vh
+    overflow: auto
+    padding: 8px
+    background: #0b1220
+    color: #e6eef8
+    border-radius: 6px}
+  .container { padding: 16px }
+</style>

@@ -1,0 +1,578 @@
+/**
+ * Legal AI Integration Service
+ * Connects gaming-inspired frontend with QUIC/HTTP3 backend services
+ * Integrates with Visual Memory Palace and N64 texture streaming
+ */
+
+import type { LegalDocument, MemoryRoom } from '$lib/3d/memory-palace-engine';
+
+// API Endpoints
+const API_ENDPOINTS = {
+    // Document Analysis
+    analyzeDocument: '/api/legal/analyze',
+    classifyDocument: '/api/legal/classify',
+    extractEntities: '/api/legal/entities',
+    generateSummary: '/api/legal/summary',
+    // Evidence Processing
+    processEvidence: '/api/evidence/process',
+    generateEmbedding: '/api/evidence/embed',
+    calculateSimilarity: '/api/evidence/similarity',
+    chainOfCustody: '/api/evidence/custody',
+    // Case Management
+    createCase: '/api/cases/create',
+    updateCase: '/api/cases/update',
+    searchCases: '/api/cases/search',
+    getCaseTimeline: '/api/cases/timeline',
+    // AI Assistant
+    chatWithAI: '/api/ai/chat',
+    getRecommendations: '/api/ai/recommendations',
+    generateBrief: '/api/ai/brief',
+    reviewContract: '/api/ai/contract-review',
+    // Memory Palace Integration
+    createMemoryRoom: '/api/memory-palace/rooms',
+    updateRoomContent: '/api/memory-palace/rooms/{id}/content',
+    getRoomDocuments: '/api/memory-palace/rooms/{id}/documents',
+    optimizePalaceLayout: '/api/memory-palace/optimize',
+    // Performance & Analytics
+    getPerformanceMetrics: '/api/metrics/performance',
+    getUsageAnalytics: '/api/metrics/usage',
+    generateReport: '/api/reports/generate'
+} as const;
+
+// Response interface
+export interface LegalAIResponse<T> {
+    success: boolean;
+    data?: T;
+    error?: string;
+    metadata?: {
+        timestamp: string;
+        processingTime: number;
+        model: string;
+        confidence: number;
+    };
+}
+
+// Document analysis result
+export interface DocumentAnalysisResult {
+    id: string;
+    classification: {
+        type: 'evidence' | 'contract' | 'brief' | 'citation';
+        confidence: number;
+        subcategory?: string;
+    };
+    entities: Array<{
+        type: 'person' | 'organization' | 'date' | 'location' | 'legal_term';
+        value: string;
+        confidence: number;
+        position: [number, number];
+    }>;
+    summary: string[];
+    priority: number;
+    riskLevel: 'low' | 'medium' | 'high' | 'critical';
+    embedding?: Float32Array;
+}
+
+// Case data interface
+export interface CaseData {
+    id: string;
+    title: string;
+    description: string;
+    status: 'open' | 'in_progress' | 'closed' | 'on_hold';
+    priority: number;
+    createdAt: string;
+    updatedAt: string;
+    documents: LegalDocument[];
+    parties: Array<{
+        name: string;
+        role: 'plaintiff' | 'defendant' | 'witness' | 'attorney';
+        contact?: string;
+    }>;
+    timeline: Array<{
+        date: string;
+        event: string;
+        type: 'filing' | 'hearing' | 'discovery' | 'settlement' | 'judgment';
+    }>;
+}
+
+// Cache system interface
+interface CacheSystem {
+    get<T>(key: string, layer?: string): Promise<T | null>;
+    set(key: string, data: unknown, layer?: string): Promise<void>;
+    delete(key: string): Promise<void>;
+    clear(): void;
+    getStats(): Record<string, unknown>;
+    cacheDocument(key: string, data: unknown): Promise<void>;
+}
+
+// Texture system interface
+interface TextureSystem {
+    generateDocumentTexture(id: string, content: string, priority: number, type: string): void;
+    getMemoryUsage(): Record<string, unknown>;
+    destroy(): void;
+}
+
+/**
+ * Legal AI Integration Service
+ */
+export class LegalAIIntegrationService {
+    private baseUrl: string;
+    private wsConnection?: WebSocket;
+    private cache: CacheSystem;
+    private textureSystem: TextureSystem;
+    private activeRequests = new Set<string>();
+    private readonly MAX_CONCURRENT_REQUESTS = 10;
+    private readonly REQUEST_TIMEOUT = 30000;
+
+    constructor(baseUrl = 'http://localhost:4433') {
+        this.baseUrl = baseUrl;
+        this.cache = this.createDefaultCache();
+        this.textureSystem = this.createDefaultTextureSystem();
+        this.initializeWebSocket();
+    }
+
+    private createDefaultCache(): CacheSystem {
+        const store = new Map<string, unknown>();
+        return {
+            async get<T>(key: string): Promise<T | null> {
+                return (store.get(key) as T) ?? null;
+            },
+            async set(key: string, data: unknown): Promise<void> {
+                store.set(key, data);
+            },
+            async delete(key: string): Promise<void> {
+                store.delete(key);
+            },
+            clear(): void {
+                store.clear();
+            },
+            getStats(): Record<string, unknown> {
+                return { size: store.size };
+            },
+            async cacheDocument(key: string, data: unknown): Promise<void> {
+                store.set(key, data);
+            }
+        };
+    }
+
+    private createDefaultTextureSystem(): TextureSystem {
+        return {
+            generateDocumentTexture(): void {},
+            getMemoryUsage(): Record<string, unknown> {
+                return {};
+            },
+            destroy(): void {}
+        };
+    }
+
+    private initializeWebSocket(): void {
+        try {
+            const wsUrl = this.baseUrl.replace('http', 'ws') + '/ws/legal-ai';
+            this.wsConnection = new WebSocket(wsUrl);
+
+            this.wsConnection.onopen = () => {
+                console.log('🎮 Legal AI WebSocket connected');
+            };
+            this.wsConnection.onmessage = (event: MessageEvent) => {
+                this.handleRealtimeUpdate(JSON.parse(event.data));
+            };
+            this.wsConnection.onerror = (error: Event) => {
+                console.error('Legal AI WebSocket error:', error);
+            };
+            this.wsConnection.onclose = () => {
+                console.log('Legal AI WebSocket disconnected, reconnecting...');
+                setTimeout(() => this.initializeWebSocket(), 5000);
+            };
+        } catch {
+            console.warn('WebSocket connection failed, using HTTP only');
+        }
+    }
+
+    private handleRealtimeUpdate(data: { type: string; document?: LegalDocument; caseId?: string }): void {
+        if (data.type === 'document_processed' && data.document) {
+            this.updateMemoryPalace(data.document);
+        } else if (data.type === 'case_updated' && data.caseId) {
+            this.invalidateCache(`case:${data.caseId}`);
+        }
+    }
+
+    async analyzeDocument(
+        documentId: string,
+        content: string,
+        options: {
+            priority?: number;
+            roomId?: string;
+            generateTexture?: boolean;
+        } = {}
+    ): Promise<LegalAIResponse<DocumentAnalysisResult>> {
+        const requestId = `analyze:${documentId}`;
+
+        // Check cache first
+        const cached = await this.cache.get<DocumentAnalysisResult>(requestId);
+        if (cached) {
+            return { success: true, data: cached };
+        }
+
+        // Enforce concurrent request limits
+        if (this.activeRequests.size >= this.MAX_CONCURRENT_REQUESTS) {
+            throw new Error('Too many concurrent requests - N64 memory constraint simulation');
+        }
+
+        this.activeRequests.add(requestId);
+
+        try {
+            const response = await this.enhancedFetch(API_ENDPOINTS.analyzeDocument, {
+                method: 'POST',
+                body: JSON.stringify({
+                    documentId,
+                    content,
+                    options: {
+                        includeEmbedding: true,
+                        generateSummary: true,
+                        extractEntities: true,
+                        ...options
+                    }
+                })
+            });
+
+            const result: LegalAIResponse<DocumentAnalysisResult> = await response.json();
+
+            if (result?.success && result.data) {
+                // Cache the result
+                await this.cache.cacheDocument(requestId, result.data);
+
+                // Generate texture if requested
+                if (options?.generateTexture && result.data.classification.type) {
+                    this.textureSystem.generateDocumentTexture(
+                        documentId,
+                        content,
+                        options?.priority ?? result.data.priority,
+                        result.data.classification.type
+                    );
+                }
+
+                // Update memory palace if room specified
+                if (options.roomId) {
+                    await this.updateMemoryRoom(options.roomId, {
+                        id: documentId,
+                        title: `Document ${documentId}`,
+                        type: result.data.classification.type,
+                        priority: result.data.priority,
+                        confidence: result.data.classification.confidence,
+                        position: [Math.random() * 20 - 10, Math.random() * 5 + 1, Math.random() * 20 - 10],
+                        embedding: result.data.embedding
+                    } as LegalDocument);
+                }
+            }
+
+            return result;
+        } finally {
+            this.activeRequests.delete(requestId);
+        }
+    }
+
+    async processEvidence(evidenceData: {
+        id: string;
+        filename: string;
+        content: string | ArrayBuffer;
+        type: 'image' | 'document' | 'audio' | 'video';
+        caseId: string;
+    }): Promise<LegalAIResponse<{ embedding?: Float32Array; confidence?: number }>> {
+        const formData = new FormData();
+        formData.append('evidenceId', evidenceData.id);
+        formData.append('filename', evidenceData.filename);
+        formData.append('type', evidenceData.type);
+        formData.append('caseId', evidenceData.caseId);
+
+        if (evidenceData.content instanceof ArrayBuffer) {
+            formData.append('file', new Blob([evidenceData.content]), evidenceData.filename);
+        } else {
+            formData.append('content', evidenceData.content);
+        }
+
+        const response = await this.enhancedFetch(API_ENDPOINTS.processEvidence, {
+            method: 'POST',
+            body: formData,
+            headers: {} // Let browser set content-type for FormData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Automatically add to evidence chamber
+            await this.updateMemoryRoom('evidence-chamber', {
+                id: evidenceData.id,
+                title: evidenceData.filename,
+                type: 'evidence',
+                content: typeof evidenceData.content === 'string' ? evidenceData.content : 'Binary content',
+                priority: 0.8,
+                confidence: result.data?.confidence ?? 0.5,
+                position: [Math.random() * 15 - 7.5, Math.random() * 3 + 1, Math.random() * 15 - 7.5],
+                embedding: result.data?.embedding
+            } as LegalDocument);
+        }
+
+        return result;
+    }
+
+    async searchCases(query: {
+        text?: string;
+        filters?: {
+            status?: string[];
+            priority?: [number, number];
+            dateRange?: [string, string];
+            documentTypes?: string[];
+        };
+        semanticSearch?: boolean;
+        limit?: number;
+    }): Promise<LegalAIResponse<CaseData[]>> {
+        const cachedKey = `search:${JSON.stringify(query)}`;
+        const cached = await this.cache.get<CaseData[]>(cachedKey, 'SEARCH_RESULTS');
+
+        if (cached) {
+            return { success: true, data: cached };
+        }
+
+        const response = await this.enhancedFetch(API_ENDPOINTS.searchCases, {
+            method: 'POST',
+            body: JSON.stringify(query)
+        });
+
+        const result: LegalAIResponse<CaseData[]> = await response.json();
+
+        if (result?.success && result.data) {
+            // Cache search results for 15 minutes
+            await this.cache.set(cachedKey, result.data, 'SEARCH_RESULTS');
+        }
+
+        return result;
+    }
+
+    async chatWithAI(
+        message: string,
+        context?: {
+            caseId?: string;
+            documentIds?: string[];
+            memoryRoomId?: string;
+        }
+    ): Promise<LegalAIResponse<{ response: string; suggestions: string[] }>> {
+        const payload = {
+            message,
+            ...context
+        };
+
+        const response = await this.enhancedFetch(API_ENDPOINTS.chatWithAI, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        return response.json();
+    }
+
+    async generateMemoryPalaceOptimization(roomId: string): Promise<
+        LegalAIResponse<{
+            suggestedLayout: Array<{ documentId: string; position: [number, number, number] }>;
+            performanceImprovements: string[];
+            memoryUsage: { before: number; after: number };
+        }>
+    > {
+        const room = await this.cache.get<MemoryRoom>(`room:${roomId}`);
+
+        if (!room) {
+            return { success: false, error: 'Room not found in cache' };
+        }
+
+        const response = await this.enhancedFetch(API_ENDPOINTS.optimizePalaceLayout, {
+            method: 'POST',
+            body: JSON.stringify({
+                roomId,
+                documents: room.documents?.map((doc: any) => ({
+                    documentId: doc.id,
+                    position: doc.position
+                }))
+            })
+        });
+
+        return response.json();
+    }
+
+    async updateMemoryRoom(roomId: string, document: LegalDocument): Promise<boolean> {
+        try {
+            // Update local cache
+            const room = await this.cache.get<MemoryRoom>(`room:${roomId}`);
+
+            if (room?.documents) {
+                const existingIndex = room.documents.findIndex((doc: any) => doc.id === document.id);
+                if (existingIndex >= 0) {
+                    room.documents[existingIndex] = document;
+                } else {
+                    room.documents.push(document);
+                }
+                await this.cache.set(`room:${roomId}`, room);
+            }
+
+            // Send to backend
+            const response = await this.enhancedFetch(`/api/memory-palace/rooms/${roomId}/content`, {
+                method: 'PUT',
+                body: JSON.stringify({ document })
+            });
+
+            return response.ok;
+        } catch (error) {
+            console.error('Failed to update room:', error);
+            return false;
+        }
+    }
+
+    private async updateMemoryPalace(document: LegalDocument): Promise<void> {
+        // Determine target room based on document type
+        const roomMapping: Record<string, string> = {
+            evidence: 'evidence-chamber',
+            contract: 'contract-archive',
+            brief: 'case-gallery',
+            citation: 'case-gallery',
+            research: 'research-lab'
+        };
+
+        const roomId = roomMapping[document.type] ?? 'research-lab';
+        await this.updateMemoryRoom(roomId, document);
+    }
+
+    private async enhancedFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+        const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+
+        // Gaming-inspired request headers (HTTP/3 optimization)
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Alt-Svc': 'h3=":4433"; ma=2592000', // Advertise HTTP/3 support
+            'X-Gaming-Mode': 'n64-constraints', // Signal constraints
+            'X-Memory-Budget': '4MB', // N64 memory constraint simulation
+            ...(options.headers as Record<string, string>)
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.REQUEST_TIMEOUT);
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                headers,
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('Request timeout - N64 processing time exceeded');
+            }
+            throw error;
+        }
+    }
+
+    private async invalidateCache(pattern: string): Promise<void> {
+        // Simple pattern-based cache invalidation
+        if (pattern.startsWith('case:')) {
+            const caseId = pattern.split(':')[1];
+            await this.cache.delete(`case:${caseId}`);
+            await this.cache.delete(`room:cases-${caseId}`);
+        }
+    }
+
+    // Utility methods
+    getPerformanceMetrics(): {
+        activeRequests: number;
+        cacheStats: unknown;
+        textureMemoryUsage: unknown;
+        requestThroughput: number;
+    } {
+        return {
+            activeRequests: this.activeRequests.size,
+            cacheStats: this.cache.getStats(),
+            textureMemoryUsage: this.textureSystem.getMemoryUsage(),
+            requestThroughput: this.activeRequests.size / this.MAX_CONCURRENT_REQUESTS
+        };
+    }
+
+    async preloadCriticalData(caseId?: string): Promise<void> {
+        // Preload commonly accessed data to improve perceived performance
+        const preloadTasks: Promise<unknown>[] = [
+            this.cache.get('user-preferences'),
+            this.cache.get('recent-cases'),
+            this.cache.get('memory-palace-layout')
+        ];
+
+        if (caseId) {
+            preloadTasks.push(
+                this.cache.get(`case:${caseId}`),
+                this.cache.get(`room:cases-${caseId}`)
+            );
+        }
+
+        await Promise.allSettled(preloadTasks);
+    }
+
+    destroy(): void {
+        // Cleanup resources
+        if (this.wsConnection) {
+            this.wsConnection.close();
+        }
+        this.textureSystem.destroy();
+        this.cache.clear();
+        this.activeRequests.clear();
+    }
+}
+
+// Singleton instance
+export const legalAI = new LegalAIIntegrationService();
+
+// Helper functions for common operations
+export async function quickDocumentAnalysis(
+    content: string,
+    options?: { priority?: number }
+): Promise<DocumentAnalysisResult | null> {
+    try {
+        const result = await legalAI.analyzeDocument(`doc_${Date.now()}`, content, {
+            generateTexture: true,
+            ...options
+        });
+        return result.success ? result.data ?? null : null;
+    } catch (error) {
+        console.error('Quick document analysis failed:', error);
+        return null;
+    }
+}
+
+export async function addEvidenceToMemoryPalace(
+    evidence: {
+        filename: string;
+        content: string;
+        type: 'image' | 'document' | 'audio' | 'video';
+    },
+    caseId?: string
+): Promise<boolean> {
+    try {
+        if (!evidence.filename || !evidence.content) {
+            console.error('Evidence filename and content are required');
+            return false;
+        }
+
+        const evidenceId = `evidence_${Date.now()}`;
+        const result = await legalAI.processEvidence({
+            id: evidenceId,
+            filename: evidence.filename,
+            content: evidence.content,
+            type: evidence.type,
+            caseId: caseId ?? 'current' // Use provided caseId or default
+        });
+        return result.success;
+    } catch (error) {
+        console.error('Failed to add evidence to palace:', error);
+        return false;
+    }
+}

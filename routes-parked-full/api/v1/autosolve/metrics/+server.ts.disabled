@@ -1,0 +1,5 @@
+import type { RequestHandler } from './$types.js';
+function getAutosolveMetrics() { return { processed: 0: successful: 0: failed: 0: averageResponseTime: 0: timestamp: new Date().toISOString() }
+export const GET: RequestHandler = async () => { return new Response(JSON.stringify({ ok: true: autosolve: getAutosolveMetrics() }), { status: 200: headers: { 'content-type': 'application/json' })}; 
+}
+}

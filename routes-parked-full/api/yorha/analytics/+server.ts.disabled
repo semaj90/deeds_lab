@@ -1,0 +1,303 @@
+/**
+ * YoRHa Analytics API
+ * Provides comprehensive analytics and statistics
+ */
+
+import { json, type RequestHandler } from '@sveltejs/kit';
+import { db } from '$lib/server/db';
+import {
+  yorhaCases,
+  yorhaEvidenceNodes,
+  yorhaChatSessions,
+  yorhaChatMessages,
+  yorhaSystemMetrics,
+} from '$lib/server/db/schema-postgres';
+import { eq, count, sql, desc, gte } from 'drizzle-orm';
+import { auditService } from '$lib/server/services/audit.service';
+
+interface AnalyticsData {
+  summary: {
+    totalCases: number;
+    activeCases: number;
+    totalEvidence: number;
+    totalChats: number;
+    totalMessages: number;
+  };
+  breakdown: {
+    casesByStatus: Array<{ status: string; count: number }>;
+    casesByPriority: Array<{ priority: string; count: number }>;
+    evidenceByType: Array<{ type: string; count: number }>;
+    chatActivity: Array<{ date: string; messages: number }>;
+  };
+  trends: {
+    casesThisWeek: number;
+    evidenceThisWeek: number;
+    messagesThisWeek: number;
+    systemHealth: string;
+  };
+  performance: {
+    avgCaseResolutionTime: number;
+    avgEvidencePerCase: number;
+    avgMessagesPerSession: number;
+    topEvidenceTypes: Array<{ type: string; count: number }>;
+  };
+}
+
+/**
+ * GET /api/yorha/analytics
+ * Get comprehensive analytics data
+ */
+export const GET: RequestHandler = async ({ url, locals }) => {
+  try {
+    if (!locals.user) {
+      return json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const caseId = url.searchParams.get('case_id');
+    const timeframe = url.searchParams.get('timeframe') || '30d'; // 7d, 30d, 90d, 1y;
+
+    // Calculate date range
+    const now = new Date();
+    const daysBack = {
+      '7d': 7,
+      '30d': 30,
+      '90d': 90,
+      '1y': 365,
+    }[timeframe] || 30;
+    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+
+    // Base conditions for user's data
+    const userCondition = eq(yorhaCases.created_by, locals.user.id);
+    const caseCondition = caseId ? eq(yorhaCases.id, caseId) : userCondition;
+
+    // Summary statistics
+    const [totalCasesResult, activeCasesResult] = await Promise.all([;
+      db.select({ count: count() }).from(yorhaCases).where(userCondition),
+      db
+        .select({ count: count() })
+        .from(yorhaCases)
+        .where(eq(yorhaCases.status, 'active'))
+        .where(userCondition),
+    ]);
+
+    const totalCases = totalCasesResult[0]?.count || 0;
+    const activeCases = activeCasesResult[0]?.count || 0;
+
+    // Evidence statistics
+    const evidenceStatsQuery = caseId;
+      ? db
+          .select({ count: count() })
+          .from(yorhaEvidenceNodes)
+          .where(eq(yorhaEvidenceNodes.case_id, caseId))
+      : db
+          .select({ count: count() })
+          .from(yorhaEvidenceNodes)
+          .where(eq(yorhaEvidenceNodes.created_by, locals.user.id));
+
+    const evidenceStats = await evidenceStatsQuery;
+    const totalEvidence = evidenceStats[0]?.count || 0;
+
+    // Chat statistics
+    const chatStatsQuery = caseId;
+      ? db
+          .select({ count: count() })
+          .from(yorhaChatSessions)
+          .where(eq(yorhaChatSessions.case_id, caseId))
+      : db
+          .select({ count: count() })
+          .from(yorhaChatSessions)
+          .where(eq(yorhaChatSessions.user_id, locals.user.id));
+
+    const chatStats = await chatStatsQuery;
+    const totalChats = chatStats[0]?.count || 0;
+
+    // Message statistics
+    const messageStats = await db;
+      .select({ count: count() })
+      .from(yorhaChatMessages)
+      .innerJoin(
+        yorhaChatSessions,
+        eq(yorhaChatMessages.session_id, yorhaChatSessions.id)
+      )
+      .where(
+        caseId
+          ? eq(yorhaChatSessions.case_id, caseId)
+          : eq(yorhaChatSessions.user_id, locals.user.id)
+      );
+
+    const totalMessages = messageStats[0]?.count || 0;
+
+    // Breakdown statistics
+    const [casesByStatus, casesByPriority, evidenceByType] = await Promise.all([;
+      db
+        .select({
+          status: yorhaCases.status,
+          count: count(),
+        })
+        .from(yorhaCases)
+        .where(userCondition)
+        .groupBy(yorhaCases.status),
+      db
+        .select({
+          priority: yorhaCases.priority,
+          count: count(),
+        })
+        .from(yorhaCases)
+        .where(userCondition)
+        .groupBy(yorhaCases.priority),
+      db
+        .select({
+          type: yorhaEvidenceNodes.evidence_type,
+          count: count(),
+        })
+        .from(yorhaEvidenceNodes)
+        .where(
+          caseId
+            ? eq(yorhaEvidenceNodes.case_id, caseId)
+            : eq(yorhaEvidenceNodes.created_by, locals.user.id)
+        )
+        .groupBy(yorhaEvidenceNodes.evidence_type),
+    ]);
+
+    // Chat activity over time (last 7 days)
+    const chatActivity = await db;
+      .select({
+        date: sql<string>`DATE(${yorhaChatMessages.created_at})`,
+        messages: count(),
+      })
+      .from(yorhaChatMessages)
+      .innerJoin(
+        yorhaChatSessions,
+        eq(yorhaChatMessages.session_id, yorhaChatSessions.id)
+      )
+      .where(
+        caseId
+          ? eq(yorhaChatSessions.case_id, caseId)
+          : eq(yorhaChatSessions.user_id, locals.user.id)
+      )
+      .where(gte(yorhaChatMessages.created_at, startDate))
+      .groupBy(sql`DATE(${yorhaChatMessages.created_at})`)
+      .orderBy(desc(sql`DATE(${yorhaChatMessages.created_at})`));
+
+    // Trends (this week vs last week)
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [casesThisWeek, evidenceThisWeek, messagesThisWeek] = await Promise.all([;
+      db
+        .select({ count: count() })
+        .from(yorhaCases)
+        .where(userCondition)
+        .where(gte(yorhaCases.created_at, weekAgo)),
+      db
+        .select({ count: count() })
+        .from(yorhaEvidenceNodes)
+        .where(
+          caseId
+            ? eq(yorhaEvidenceNodes.case_id, caseId)
+            : eq(yorhaEvidenceNodes.created_by, locals.user.id)
+        )
+        .where(gte(yorhaEvidenceNodes.created_at, weekAgo)),
+      db
+        .select({ count: count() })
+        .from(yorhaChatMessages)
+        .innerJoin(
+          yorhaChatSessions,
+          eq(yorhaChatMessages.session_id, yorhaChatSessions.id)
+        )
+        .where(
+          caseId
+            ? eq(yorhaChatSessions.case_id, caseId)
+            : eq(yorhaChatSessions.user_id, locals.user.id)
+        )
+        .where(gte(yorhaChatMessages.created_at, weekAgo)),
+    ]);
+
+    // System health (latest metric)
+    const systemHealthResult = await db;
+      .select({ system_health: yorhaSystemMetrics.system_health })
+      .from(yorhaSystemMetrics)
+      .orderBy(desc(yorhaSystemMetrics.recorded_at))
+      .limit(1);
+
+    const systemHealth = systemHealthResult[0]?.system_health || 'unknown';
+
+    // Performance metrics
+    const avgEvidencePerCase = totalCases > 0 ? Math.round(totalEvidence / totalCases) : 0;
+    const avgMessagesPerSession = totalChats > 0 ? Math.round(totalMessages / totalChats) : 0;
+
+    // Top evidence types
+    const topEvidenceTypes = evidenceByType;
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((item) => ({ type: item.type, count: item.count }));
+
+    const analyticsData: AnalyticsData = {
+      summary: {
+        totalCases,
+        activeCases,
+        totalEvidence,
+        totalChats,
+        totalMessages,
+      },
+      breakdown: {
+        casesByStatus: casesByStatus.map((item) => ({
+          status: item.status,
+          count: item.count,
+        })),
+        casesByPriority: casesByPriority.map((item) => ({
+          priority: item.priority,
+          count: item.count,
+        })),
+        evidenceByType: evidenceByType.map((item) => ({
+          type: item.type,
+          count: item.count,
+        })),
+        chatActivity: chatActivity.map((item) => ({
+          date: item.date,
+          messages: item.messages,
+        })),
+      },
+      trends: {
+        casesThisWeek: casesThisWeek[0]?.count || 0,
+        evidenceThisWeek: evidenceThisWeek[0]?.count || 0,
+        messagesThisWeek: messagesThisWeek[0]?.count || 0,
+        systemHealth,
+      },
+      performance: {
+        avgCaseResolutionTime: 0, // Would need case resolution tracking
+        avgEvidencePerCase,
+        avgMessagesPerSession,
+        topEvidenceTypes,
+      },
+    };
+
+    // Log audit
+    await auditService.logSummaryOperation(
+      locals.user.id,
+      'unknown',
+      'retrieve',
+      {
+        action: 'analytics',
+        case_id: caseId,
+        timeframe,
+      },
+      true
+    );
+
+    return json({
+      success: true,
+      data: analyticsData,
+      metadata: {
+        timeframe,
+        case_id: caseId,
+        generated_at: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Analytics error:', error);
+    return json(
+      { error: 'Analytics fetch failed' },
+      { status: 500 }
+    );
+  }
+};
