@@ -1,0 +1,343 @@
+import type { requireAuthentication  } from '$lib/server/auth-guard.js';
+import type { RequestHandler } from '@sveltejs/kit';
+import type { Client as MinioClient  } from 'minio';
+import type { Pool  } from 'pg';
+import type { StorageRateLimit, StorageAuditLogger, checkOwnership  } from '$lib/server/storage/storage-utils.js';
+
+interface StorageMetadata {
+  id: string;
+  bucket: string;
+  key: string;
+  ownerId: string;
+  deleted: boolean;
+  deletedAt?: Date;
+  deletedBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** * Get MinIO client instance */
+function getMinioClient() {
+  const endpoint = process.env.MINIO_ENDPOINT || 'localhost:9000';
+  const [host, port] = endpoint.split(':');
+  const useSSL = (process.env.MINIO_USE_SSL || 'false').toLowerCase() === 'true';
+  const accessKey = process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || 'minio';
+  const secretKey = process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || 'minio123';
+
+  return new MinioClient({
+    endPoint: host,
+    port: port ? parseInt(port, 10) : 9000,
+    useSSL,
+    accessKey,
+    secretKey
+  });
+}
+
+// Database pool (singleton to avoid multiple pools during dev/HMR)
+// Default points to Docker Desktop Postgres DB named `legal_ai_db`
+// You can override with DATABASE_URL or POSTGRES_URL environment variable.
+const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgresql://postgres:postgres@localhost:5432/legal_ai_db';
+
+// Provide a typed global for the pool to avoid `any` casts and TS errors
+declare global {
+  // augment the GlobalThis interface so `globalThis.__pgPool` is recognized by TS
+  interface GlobalThis {
+    __pgPool?: Pool;
+  }
+}
+
+// Initialize or reuse the global pool in a type-safe way
+// Replace direct indexing of globalThis to avoid the TS: "no index signature" error.
+type GlobalPg = { __pgPool?: Pool };
+const g = globalThis as any as GlobalPg;
+if (!g.__pgPool) {
+  g.__pgPool = new Pool({ connectionString: DATABASE_URL });
+}
+const pgPool: Pool = g.__pgPool!;
+
+/** * Get storage metadata from database * This will query the storage_files table for a single record. */
+async function getStorageMetadata(bucket: string, key: string): Promise<StorageMetadata | null> {
+  try {
+    const res = await pgPool.query(;
+      `SELECT id, bucket, key, owner_id, deleted, deleted_at, deleted_by, created_at, updated_at FROM storage_files WHERE bucket = $1 AND key = $2 LIMIT 1`,
+      [bucket, key]
+    );
+
+    if (res.rowCount === 0) return null;
+
+    const row = res.rows[0];
+    return {
+      id: row.id ?? `${bucket}/${key}`,
+      bucket: row.bucket,
+      key: row.key,
+      ownerId: row.owner_id,
+      deleted: !!row.deleted,
+      deletedAt: row.deleted_at ? new Date(row.deleted_at) : undefined,
+      deletedBy: row.deleted_by ?? undefined,
+      createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date()
+    };
+  } catch (error) {
+    console.error('Failed to get storage metadata from DB: ', error);
+    return null;
+  }
+}
+
+/** * Mark file as deleted in database (soft delete) */
+async function markAsDeleted(bucket: string, key: string, deletedBy: string): Promise<boolean> {
+  try {
+    const res = await pgPool.query(;
+      `UPDATE storage_files SET deleted = TRUE, deleted_at = NOW(), deleted_by = $3, updated_at = NOW() WHERE bucket = $1 AND key = $2 RETURNING id`,
+      [bucket, key, deletedBy]
+    );
+    return res.rowCount > 0;
+  } catch (error) {
+    console.error('Failed to mark as deleted in DB: ', error);
+    return false;
+  }
+}
+
+/** * Actually delete file from storage (called by background job) */
+async function hardDelete(bucket: string, key: string): Promise<boolean> {
+  const client = getMinioClient();
+  try {
+    // Support both callback-style and Promise-style removeObject implementations.
+    // Use runtime checks only (avoid unused TypeScript type aliases).
+    const removeObj = (client as any as Record<string, any>)['removeObject'];
+    if (typeof removeObj !== 'function') {
+      throw new Error('MinIO client does not implement removeObject');
+    }
+
+    // Call the function and inspect the return value to decide whether it's Promise-based.
+    const callFn = removeObj as (...args: unknown[]) => any;
+    const result = callFn.call(client, bucket, key);
+
+    // If it looks like a Promise, await it.
+    if (result && typeof (result as Promise<any>).then === 'function') {
+      await result as Promise<any>;
+    } else {
+      // Otherwise assume callback-style; call with a callback and wrap in a Promise.
+      await new Promise<void>((resolve, reject) => {
+        try {
+          // Call again with callback signature
+          const maybe = callFn.call(client, bucket, key, (err?: unknown) => {
+            if (err) return reject(err);
+            resolve();
+          });
+          // In some implementations the first call may have already returned a Promise;
+          // handle that defensively.
+          if (maybe && typeof (maybe as Promise<any>).then === 'function') {
+            (maybe as Promise<any>).then(() => resolve()).catch(reject);
+          }
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    // Remove DB record if present
+    try {
+      await pgPool.query(`DELETE FROM storage_files WHERE bucket = $1 AND key = $2`, [bucket, key]);
+    } catch (error) {
+      console.warn(`Hard delete removed object ${bucket}/${key} but failed to delete DB row: `, error);
+      // still return true because object removed; caller can retry DB cleanup
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to hard delete ${bucket}/${key}:`, error);
+    return false;
+  }
+}
+
+// Maximum safe timer in Node (signed 32-bit): ~24.85 days in ms
+const MAX_TIMER_MS = 2147483647;
+
+/** * Schedule a hard delete safely, chunking large delays to avoid timer overflow. */
+function scheduleHardDeleteSafe(bucketName: string, keyName: string, remainingMs: number): void {
+  if (remainingMs <= 0) {
+    // Run immediately on next tick
+    setImmediate(async () => {
+      try {
+        await hardDelete(bucketName, keyName);
+        console.log(`Hard deleted: ${bucketName}/${keyName}`);
+      } catch (error) {
+        console.error(`Failed to hard delete ${bucketName}/${keyName}:`, error);
+      }
+    });
+    return;
+  }
+
+  if (remainingMs <= MAX_TIMER_MS) {
+    setTimeout(async () => {
+      try {
+        await hardDelete(bucketName, keyName);
+        console.log(`Hard deleted: ${bucketName}/${keyName}`);
+      } catch (error) {
+        console.error(`Failed to hard delete ${bucketName}/${keyName}:`, error);
+      }
+    }, remainingMs);
+  } else {
+    // Schedule the next chunk and recurse for the rest
+    setTimeout(() => {
+      scheduleHardDeleteSafe(bucketName, keyName, remainingMs - MAX_TIMER_MS);
+    }, MAX_TIMER_MS);
+  }
+}
+
+/** * DELETE endpoint with soft-delete and ownership verification */
+export const DELETE: RequestHandler = async (event) => {
+  try {
+    // Authenticate user
+    const user = await requireAuthentication(event);
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: 'Authentication required' }), { status: 401 });
+    }
+
+    // Rate limiting
+    if (!StorageRateLimit.check(user.id, 50, 60000)) {
+      StorageAuditLogger.log('delete', user, '', '', event.request, false, 'Rate limit exceeded');
+      return new Response(JSON.stringify({ ok: false, error: 'Rate limit exceeded' }), { status: 429 });
+    }
+
+    // Parse request
+    const url = new URL(event.request.url);
+    const bucket = url.searchParams.get('bucket');
+    const key = url.searchParams.get('key');
+
+    if (!bucket || !key) {
+      StorageAuditLogger.log('delete', user, bucket || '', key || '', event.request, false, 'Missing bucket or key');
+      return new Response(JSON.stringify({ ok: false, error: 'Bucket and key parameters required' }), { status: 400 });
+    }
+
+    // Check if file exists and get metadata
+    const metadata = await getStorageMetadata(bucket, key);
+    if (!metadata) {
+      StorageAuditLogger.log('delete', user, bucket, key, event.request, false, 'File not found');
+      return new Response(JSON.stringify({ ok: false, error: 'File not found' }), { status: 404 });
+    }
+
+    // Verify ownership
+    if (!checkOwnership(user, metadata.ownerId)) {
+      StorageAuditLogger.log('delete', user, bucket, key, event.request, false, 'Access denied - not owner');
+      return new Response(JSON.stringify({ ok: false, error: 'Access denied' }), { status: 403 });
+    }
+
+    // Check if already deleted
+    if (metadata.deleted) {
+      StorageAuditLogger.log('delete', user, bucket, key, event.request, false, 'File already deleted');
+      return new Response(JSON.stringify({ ok: false, error: 'File already deleted' }), { status: 410 });
+    }
+
+    // Perform soft delete
+    const softDeleteSuccess = await markAsDeleted(bucket, key, user.id);
+    if (!softDeleteSuccess) {
+      StorageAuditLogger.log('delete', user, bucket, key, event.request, false, 'Failed to mark as deleted');
+      return new Response(JSON.stringify({ ok: false, error: 'Failed to delete file' }), { status: 500 });
+    }
+
+    // Schedule hard delete (in a real app this would be queued for a background job)
+    const enableHardDelete = (process.env.ENABLE_HARD_DELETE || 'false').toLowerCase() === 'true';
+
+    // Validate hours input; fallback to 24h when invalid
+    let hardDeleteDelayHours = parseInt(process.env.HARD_DELETE_DELAY_HOURS || '24', 10);
+    if (!Number.isFinite(hardDeleteDelayHours) || hardDeleteDelayHours < 0) {
+      hardDeleteDelayHours = 24;
+    }
+    const hardDeleteDelay = hardDeleteDelayHours * 60 * 60 * 1000;
+
+    // Schedule a hard delete (use module-level scheduler)
+    if (enableHardDelete) {
+      scheduleHardDeleteSafe(bucket, key, hardDeleteDelay);
+    }
+
+    // Log successful deletion
+    await StorageAuditLogger.log('delete', user, bucket, key, event.request, true, undefined, {
+      softDelete: true,
+      hardDeleteScheduled: enableHardDelete
+    });
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        message: 'File deleted successfully',
+        softDelete: true,
+        hardDeleteScheduled: enableHardDelete,
+        hardDeleteAfter: enableHardDelete ? new Date(Date.now() + hardDeleteDelay).toISOString() : null
+      }),
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Delete operation failed: ', error);
+
+    // Best-effort audit log for failure (avoid reading properties off unknown)
+    try {
+      // Provide a minimal, structurally-compatible system user object instead of `any`
+      const systemUser = { id: 'system', displayName: 'system', email: 'system@local' };
+      // Call logger with the same parameter order used elsewhere
+      await StorageAuditLogger.log('delete', systemUser, '', '', event.request, false, getErrorMessage(error));
+    } catch {
+      // ignore audit failure
+    }
+
+    return new Response(JSON.stringify({ ok: false, error: 'Internal server error' }), { status: 500 });
+  }
+};
+
+/** * GET endpoint to check deletion status */
+export const GET: RequestHandler = async (event) => {
+  try {
+    const user = await requireAuthentication(event);
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: 'Authentication required' }), { status: 401 });
+    }
+
+    const url = new URL(event.request.url);
+    const bucket = url.searchParams.get('bucket');
+    const key = url.searchParams.get('key');
+
+    if (!bucket || !key) {
+      return new Response(JSON.stringify({ ok: false, error: 'Bucket and key parameters required' }), { status: 400 });
+    }
+
+    const metadata = await getStorageMetadata(bucket, key);
+    if (!metadata) {
+      return new Response(JSON.stringify({ ok: false, error: 'File not found' }), { status: 404 });
+    }
+
+    if (!checkOwnership(user, metadata.ownerId)) {
+      return new Response(JSON.stringify({ ok: false, error: 'Access denied' }), { status: 403 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        bucket: metadata.bucket,
+        key: metadata.key,
+        deleted: metadata.deleted,
+        deletedAt: metadata.deletedAt ?? null,
+        deletedBy: metadata.deletedBy ?? null
+      }),
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Status check failed: ', error);
+    return new Response(JSON.stringify({ ok: false, error: 'Internal server error' }), { status: 500 });
+  }
+};
+
+/** * Utility: get a safe error message from unknown */
+function getErrorMessage(e: any): string {
+  // string errors
+  if (typeof e === 'string') return e;
+  // native Error instances
+  if (e instanceof Error) return e.message;
+  // objects with a message property
+  if (typeof e === 'object' && e !== null) {
+    const msg = (e as Record<string, unknown>)['message'];
+    if (typeof msg === 'string') return msg;
+  }
+  return 'Unknown error';
+}`
+
+

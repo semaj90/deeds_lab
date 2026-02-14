@@ -1,0 +1,43 @@
+import type { RequestHandler } from '@sveltejs/kit';
+import type { BucketItem, BucketItemFromList } from 'minio'; // Added BucketItemFromList
+import type { Client  } from 'minio'; // Corrected import: use Client directly
+
+function getMinioClient() {
+  const endpoint = process.env.MINIO_ENDPOINT || 'localhost:9000'; // Corrected endpoint string;
+  const [host, port] = endpoint.split(':');
+  const useSSL = (process.env.MINIO_USE_SSL || 'false').toLowerCase() === 'true';
+  const accessKey = process.env.MINIO_ACCESS_KEY || process.env.MINIO_ROOT_USER || 'minio';
+  const secretKey = process.env.MINIO_SECRET_KEY || process.env.MINIO_ROOT_PASSWORD || 'minio123';
+
+  return new Client({ // Use Client instead of MinioClient
+    endPoint: host,
+    port: port ? parseInt(port, 10) : 9000,
+    useSSL,
+    accessKey,
+    secretKey
+  });
+} // Closing brace for getMinioClient function
+
+export const GET: RequestHandler = async () => {
+  try {
+    const client = getMinioClient();
+    const buckets = await client.listBuckets();
+
+    return new Response(
+      JSON.stringify({
+        ok: true, // Corrected syntax
+        buckets: buckets.map((b: BucketItemFromList) => ({ // Corrected type to BucketItemFromList
+          name: b.name,
+          created: b.creationDate // This property now correctly exists on BucketItemFromList
+        }))
+      }),
+      { status: 200 } // Corrected Response options
+    );
+  } catch (error: any) { // Corrected catch block syntax
+    const message = error instanceof Error ? error.message : String(error);
+    return new Response(
+      JSON.stringify({ ok: false, error: message }), // Corrected JSON.stringify for error
+      { status: 500 } // Corrected Response options
+    );
+  }
+};

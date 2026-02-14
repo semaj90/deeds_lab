@@ -1,0 +1,231 @@
+/**
+ * Enhanced RAG with VLM Integration
+ * Combines vector search (RAG) with vision analysis (VLM) for richer context
+ */
+
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { enrichChatWithVLMAnalysis } from '$lib/server/vlm-document-analyzer';
+import { generateText } from '$lib/server/ollama-service';
+
+interface EnhancedRAGRequest {
+  query: string;
+  ragResults: Array<{
+    text: string;
+    evidence_id: string;
+    chunk_id: string;
+    score: number;
+  }>;
+  imageData?: string; // Base64 encoded image
+  documentType?: 'contract' | 'evidence' | 'statute' | 'case_law' | 'other';
+  caseId?: string;
+}
+
+interface EnhancedRAGResponse {
+  answer: string;
+  sources: Array<{
+    evidence_id: string;
+    chunk_id: string;
+    score: number;
+  }>;
+  visionInsights?: string[];
+  confidence: number;
+  latencyMs: number;
+}
+
+/**
+ * POST /api/ai/enhanced-rag-vlm
+ * Enhanced RAG with VLM analysis for document-aware responses
+ */
+export const POST: RequestHandler = async ({ request }) => {
+  const startTime = Date.now();
+
+  try {
+    const body = (await request.json()) as EnhancedRAGRequest;
+    const { query, ragResults, imageData, documentType = 'other', caseId } = body;
+
+    if (!query?.trim()) {
+      return json({ error: 'Query is required' }, { status: 400 });
+    }
+
+    console.log(`🔍 Enhanced RAG: "${query.substring(0, 50)}..."`);
+
+    // 1. Enrich context with VLM if image provided
+    let enrichedContext = ragResults.map((r) => r.text).join('\n');
+    let visionInsights: string[] = [];
+    let vlmConfidence = 0.8;
+
+    if (imageData) {
+      console.log(`📸 Enriching with VLM analysis (${documentType})...`);
+      const enrichment = await enrichChatWithVLMAnalysis({
+        query,
+        ragResults,
+        imageData,
+      });
+
+      enrichedContext = enrichment.enrichedContext;
+      visionInsights = enrichment.visionInsights;
+      vlmConfidence = enrichment.confidence;
+    }
+
+    // 2. Build prompt with enriched context
+    const systemPrompt = buildSystemPrompt(documentType, caseId);
+    const fullPrompt = buildFullPrompt(query, enrichedContext, documentType);
+
+    console.log(`💭 Generating response with Gemma3-Legal...`);
+
+    // 3. Generate response using Gemma3-Legal
+    const answer = await generateText(fullPrompt, systemPrompt, {
+      temperature: 0.7,
+      top_k: 40,
+      top_p: 0.9,
+    });
+
+    // 4. Extract citations from answer
+    const citations = extractCitations(answer, ragResults);
+
+    // 5. Compute confidence
+    const confidence = Math.min(vlmConfidence, 0.95);
+
+    const latency = Date.now() - startTime;
+
+    console.log(`✅ Enhanced RAG complete (${latency}ms, confidence: ${confidence.toFixed(2)})`);
+
+    const response: EnhancedRAGResponse = {
+      answer,
+      sources: citations,
+      visionInsights: visionInsights.length > 0 ? visionInsights : undefined,
+      confidence,
+      latencyMs: latency,
+    };
+
+    return json(response);
+  } catch (err) {
+    console.error('❌ Enhanced RAG error:', err);
+    return json(
+      {
+        error: err instanceof Error ? err.message : 'Enhanced RAG failed',
+      },
+      { status: 500 }
+    );
+  }
+};
+
+/**
+ * Build system prompt based on document type
+ */
+function buildSystemPrompt(documentType: string, caseId?: string): string {
+  const basePrompt = `You are a legal AI assistant specializing in document analysis and case law.;
+You provide accurate, well-reasoned responses based on provided evidence and legal context.
+Always cite your sources and explain your reasoning.
+Be concise but thorough.`;
+
+  const typeSpecific: Record<string, string> = {
+    contract: `\n\nYou are analyzing a contract. Focus on:
+- Key terms and conditions
+- Obligations and rights of parties
+- Potential risks or liabilities
+- Dispute resolution mechanisms`,
+
+    evidence: `\n\nYou are analyzing evidence. Focus on:
+- Relevance to the case
+- Credibility and reliability
+- Connections to other evidence
+- Legal implications`,
+
+    statute: `\n\nYou are analyzing statutory law. Focus on:
+- Applicability and scope
+- Key provisions and requirements
+- Penalties or consequences
+- Related statutes or amendments`,
+
+    case_law: `\n\nYou are analyzing case law. Focus on:
+- Legal precedent and holdings
+- Reasoning and rationale
+- Applicability to current situation
+- Distinguishing factors`,
+
+    other: `\n\nAnalyze the provided legal document carefully.
+Focus on key facts, legal concepts, and implications.`,
+  };
+
+  let prompt = basePrompt + (typeSpecific[documentType] || typeSpecific.other);
+
+  if (caseId) {
+    prompt += `\n\nCase ID: ${caseId}`;
+  }
+
+  return prompt;
+}
+
+/**
+ * Build full prompt with context
+ */
+function buildFullPrompt(query: string, context: string, documentType: string): string {
+  return `Based on the following ${documentType} document and context:
+
+${context}
+
+Please answer this question: ${query}
+
+Provide a clear, well-reasoned response with citations to specific sections or evidence.`;
+}
+
+/**
+ * Extract citations from answer and match with RAG results
+ */
+function extractCitations(
+  answer: string,
+  ragResults: Array<{
+    text: string;
+    evidence_id: string;
+    chunk_id: string;
+    score: number;
+  }>
+): Array<{
+  evidence_id: string;
+  chunk_id: string;
+  score: number;
+}> {
+  const citations: Array<{
+    evidence_id: string;
+    chunk_id: string;
+    score: number;
+  }> = [];
+
+  // Extract evidence IDs mentioned in answer
+  const evidencePattern = /EV-\d+|evidence[_-]?\d+/gi;
+  const matches = answer.match(evidencePattern) || [];
+
+  for (const match of matches) {
+    const found = ragResults.find(;
+      (r) =>
+        r.evidence_id.toUpperCase().includes(match.toUpperCase()) ||
+        match.toUpperCase().includes(r.evidence_id.toUpperCase())
+    );
+
+    if (found && !citations.find((c) => c.evidence_id === found.evidence_id)) {
+      citations.push({
+        evidence_id: found.evidence_id,
+        chunk_id: found.chunk_id,
+        score: found.score,
+      });
+    }
+  }
+
+  // If no explicit citations found, use top RAG results
+  if (citations.length === 0) {
+    citations.push(
+      ...ragResults
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((r) => ({
+          evidence_id: r.evidence_id,
+          chunk_id: r.chunk_id,
+          score: r.score,
+        }))
+    );
+  }
+
+  return citations;
+}

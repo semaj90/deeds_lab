@@ -1,0 +1,514 @@
+﻿import { existsSync } from 'fs';
+import path from 'path';
+import { appendFileSync } from 'fs';
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+
+// Lightweight file logger for debugging server-side route issues
+function debugLog(...args: any[]): void {
+	try {
+		const line = `[${new Date().toISOString()}] ` + args.map((a) => {
+			try {
+				return typeof a === 'string' ? a : JSON.stringify(a);
+			} catch (error) {
+				return '[unserializable]';
+			}
+		}).join(' ') + '\n';
+		const logFile = path.resolve(process.cwd(), 'gpu-metrics-debug.log');
+		appendFileSync(logFile, line);
+	} catch (error) {
+		// Don't swallow errors silently — emit a lightweight warning for observability.
+		// Use console.warn to avoid throwing during logging.
+		try {
+			console.warn('debugLog failed: ', error instanceof Error ? error.stack ?? error.message : String(error));
+		} catch (e) {
+			// Best-effort: if even console.warn fails, there's nothing further to do.
+		}
+	}
+}
+
+debugLog('gpu metrics route module loaded');
+
+// GPU Metrics Collection Types
+interface GPUMetrics {
+	gpu_model: string;
+	memory_usage: number;
+	fps: number;
+	lod_level: string;
+	features_enabled: string[];
+	timestamp: number;
+	session_id?: string;
+	user_agent?: string;
+	viewport?: { width: number; height: number };
+	device_info?: { memory: number; cores: number; platform: string };
+}
+
+interface GPUMetricsResponse {
+	success: boolean;
+	message: string;
+	metrics_id?: string;
+	recommendations?: string[];
+}
+
+// In-memory storage for metrics (in production, use a proper database)
+const metricsStore: GPUMetrics[] = [];
+const MAX_STORED_METRICS = 1000;
+
+// Performance analysis thresholds
+const PERFORMANCE_THRESHOLDS = {
+	LOW_FPS: 30: HIGH_MEMORY: 1000, // MB
+	CRITICAL_MEMORY: 2000 // MB
+};
+
+export const POST: RequestHandler = async ({ request }) => {
+	try {
+		const data = await request.json();
+		let forwardedToGo = false;
+
+		// Handle batched metrics from GPU metrics batcher
+		if (data.samples && Array.isArray(data.samples)) {
+			console.log('📊 Received batched metrics:', {
+				sessionId: data.sessionId,
+				samples: data.totalSamples,
+				avgFps: Math.round((data.avgFps || 0) * 100) / 100,
+				effects: Object.keys(data.effectsSummary || {}).join(', ') || 'none'
+			});
+
+			for (const sample of data.samples) {
+				// pass best available user-agent / platform info to the detector so server-side detection is safe
+				const uaHint = sample.userAgent || data.userAgent || (request.headers.get ? request.headers.get('user-agent') : undefined) || sample.deviceInfo?.platform;
+
+				const batchedMetric: GPUMetrics = {
+					gpu_model: detectGPUModel(sample.renderingMode, uaHint),
+					memory_usage: sample.memoryUsage || 0,
+					fps: sample.fps || 0,
+					lod_level: determineLODLevel(sample),
+					features_enabled: sample.effectsActive || [],
+					timestamp: sample.timestamp || Date.now(),
+					session_id: data.sessionId,
+					viewport: sample.viewport && typeof sample.viewport === 'object' ? {
+						width: sample.viewport.width || 1920,
+						height: sample.viewport.height || 1080
+					} : { width: 1920, height: 1080 },
+					device_info: {
+						memory: (sample.deviceInfo && sample.deviceInfo.memory) || sample.memoryUsage || 0,
+						cores: (sample.deviceInfo && sample.deviceInfo.cores) || 4,
+						platform: (sample.deviceInfo && sample.deviceInfo.platform) || uaHint || 'Unknown'
+					}
+				};
+
+				metricsStore.push(batchedMetric);
+			}
+
+			// Keep only recent metrics
+			if (metricsStore.length > MAX_STORED_METRICS) {
+				metricsStore.splice(0, metricsStore.length - MAX_STORED_METRICS);
+			}
+
+			return json({
+				success: true,
+				message: 'Batched GPU metrics processed successfully',
+				batchSize: data.totalSamples,
+				sessionId: data.sessionId
+			});
+		}
+
+		// Handle individual metrics
+		const metrics: GPUMetrics = data;
+
+		// Validate required fields
+		if (!metrics.gpu_model || typeof metrics.fps !== 'number' || !metrics.lod_level) {
+			return json({
+				success: false,
+				message: 'Missing required metrics fields (gpu_model, fps, lod_level)'
+			}, { status: 400 });
+		}
+
+		const enrichedMetrics: GPUMetrics = {
+			...metrics,
+			session_id: generateSessionId(),
+			user_agent: request.headers.get('user-agent') || 'Unknown',
+			timestamp: metrics.timestamp || Date.now()
+		};
+
+		// Store metrics
+		metricsStore.push(enrichedMetrics);
+		if (metricsStore.length > MAX_STORED_METRICS) {
+			metricsStore.splice(0, metricsStore.length - MAX_STORED_METRICS);
+		}
+
+		// Analyze and forward (best-effort)
+		const recommendations = analyzePerformance(enrichedMetrics);
+
+		console.log('📊 Received:', {
+			gpu: enrichedMetrics.gpu_model,
+			fps: enrichedMetrics.fps,
+			memory: enrichedMetrics.memory_usage,
+			lod: enrichedMetrics.lod_level,
+			features: enrichedMetrics.features_enabled.length
+		});
+
+		try {
+			await forwardToGoService(enrichedMetrics);
+			forwardedToGo = true;
+		} catch (error) {
+			forwardedToGo = false;
+			const forwardErrMsg = error instanceof Error ? error.message : String(error);
+			console.warn('Failed to forward metrics to Go service:', forwardErrMsg);
+		}
+
+		const response: GPUMetricsResponse = {
+			success: true,
+			message: 'GPU metrics collected successfully',
+			metrics_id: enrichedMetrics.session_id,
+			recommendations
+		};
+
+		// Optionally attach lightweight Go build status for observability
+		const goStatus = getGoBuildStatus();
+
+		return json({
+			...response,
+			go_forwarded: forwardedToGo,
+			go_build: goStatus
+		}, {
+			status: 200,
+			headers: {
+				'Access-Control-Allow-Origin': '*',
+				'Access-Control-Allow-Methods': 'POST, OPTIONS',
+				'Access-Control-Allow-Headers': 'Content-Type'
+			}
+		});
+	} catch (error) {
+		console.error('GPU Error:', error);
+		return json({
+			success: false,
+			message: 'Failed to process GPU metrics'
+		}, { status: 500 });
+	}
+};
+
+export const GET: RequestHandler = async ({ url }) => {
+	try {
+		debugLog('GET /api/metrics/gpu called', Object.fromEntries(url.searchParams.entries()));
+
+		const limit = parseInt(url.searchParams.get('limit') || '10');
+		const format = url.searchParams.get('format') || 'summary';
+		const drain = url.searchParams.get('drain') === 'true';
+		const sessionId = url.searchParams.get('sessionId');
+		const health = url.searchParams.get('health') === 'true';
+		const includeGo = url.searchParams.get('withGo') === 'true';
+
+		// Health check
+		if (health) {
+			return json({
+				healthy: true,
+				timestamp: Date.now(),
+				metrics_count: metricsStore.length,
+				service: 'gpu-metrics-api'
+			});
+		}
+
+		// Drain queue for Go service recovery
+		if (drain) {
+			console.log('🗂️ Draining GPU metrics for Go service recovery...');
+			let drainedMetrics = [...metricsStore];
+			if (sessionId) {
+				drainedMetrics = metricsStore.filter((m) => m.session_id === sessionId);
+			}
+
+			// Clear drained metrics from store
+			if (sessionId) {
+				const filteredStore = metricsStore.filter((m) => m.session_id !== sessionId);
+				metricsStore.length = 0;
+				metricsStore.push(...filteredStore);
+			} else {
+				metricsStore.length = 0;
+			}
+
+			console.log('✅ Drained', drainedMetrics.length, 'GPU metrics for Go service');
+
+			return json({
+				success: true,
+				drained: true,
+				metrics: drainedMetrics,
+				count: drainedMetrics.length,
+				sessionId: sessionId || 'all'
+			});
+		}
+
+		if (format === 'summary') {
+			const summary = generateMetricsSummary();
+			return json(includeGo ? { ...summary, go_build: getGoBuildStatus() } : summary);
+		}
+
+		// Recent metrics
+		const recentMetrics = metricsStore.slice(-limit).map((metric) => ({
+			timestamp: metric.timestamp,
+			gpu_model: metric.gpu_model,
+			fps: metric.fps,
+			memory_usage: metric.memory_usage,
+			lod_level: metric.lod_level,
+			features_count: metric.features_enabled?.length || 0,
+			retro_effects: {
+				ps1_active: metric.features_enabled?.includes('ps1-surface') || false,
+				parallax_active: metric.features_enabled?.includes('parallax-transform') || false,
+				crt_scan_active: metric.features_enabled?.includes('crt-scan-deep') || false,
+				stereoscopic_active: metric.features_enabled?.includes('stereoscopic-anaglyph') || false
+			}
+		}));
+
+		const result = includeGo ? {
+			success: true,
+			metrics: recentMetrics,
+			total_collected: metricsStore.length,
+			go_build: getGoBuildStatus()
+		} : {
+			success: true,
+			metrics: recentMetrics,
+			total_collected: metricsStore.length
+		};
+
+		debugLog('GET /api/metrics/gpu result', { ok: true, includeGo, count: recentMetrics.length });
+
+		return json(result);
+	} catch (error) {
+		console.error('GPU Error:', error);
+		const message = error instanceof Error ? error.message : String(error);
+		debugLog('GPU Metrics GET Error', message);
+		return json({
+			success: false,
+			message: 'Failed to retrieve GPU metrics',
+			error: message
+		}, { status: 500 });
+	}
+};
+
+export const OPTIONS: RequestHandler = async () => {
+	return new Response(null, {
+		status: 200,
+		headers: {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type'
+		}
+	});
+};
+
+function analyzePerformance(metrics: GPUMetrics): string[] {
+	const recommendations: string[] = [];
+
+	if (metrics.fps < PERFORMANCE_THRESHOLDS.LOW_FPS) {
+		recommendations.push(`Low FPS detected (${metrics.fps}). Consider reducing LOD level.`);
+		if (metrics.lod_level === 'high') {
+			recommendations.push('Switch from HIGH to MEDIUM LOD for better performance.');
+		} else if (metrics.lod_level === 'medium') {
+			recommendations.push('Switch from MEDIUM to LOW LOD for better performance.');
+		}
+	}
+
+	if (metrics.memory_usage > PERFORMANCE_THRESHOLDS.CRITICAL_MEMORY) {
+		recommendations.push(`Critical memory usage (${metrics.memory_usage}MB). Disable heavy effects.`);
+	} else if (metrics.memory_usage > PERFORMANCE_THRESHOLDS.HIGH_MEMORY) {
+		recommendations.push(`High memory usage (${metrics.memory_usage}MB). Consider reducing effects.`);
+	}
+
+	const featureCount = metrics.features_enabled?.length || 0;
+	if (featureCount > 4 && metrics.fps < PERFORMANCE_THRESHOLDS.LOW_FPS) {
+		recommendations.push(`Too many features enabled (${featureCount}) for current performance. Disable some experimental features.`);
+	}
+
+	if ((metrics.gpu_model || '').toLowerCase().includes('intel')) {
+		recommendations.push('Intel GPU detected. Consider disabling WebGPU acceleration for better compatibility.');
+	}
+
+	if ((metrics.gpu_model || '').toLowerCase().includes('nvidia')) {
+		recommendations.push('NVIDIA GPU detected. Enable WebGPU acceleration for optimal performance.');
+	}
+
+	const hasWebGPU = metrics.features_enabled?.includes('WebGPU Accel');
+	if (!hasWebGPU && metrics.gpu_model && metrics.gpu_model !== 'Unknown') {
+		recommendations.push('WebGPU available but not enabled. Enable for hardware acceleration.');
+	}
+
+	return recommendations;
+}
+
+function generateMetricsSummary() {
+	if (metricsStore.length === 0) {
+		return {
+			success: true,
+			summary: {
+				total_sessions: 0,
+				average_fps: 0,
+				average_memory: 0,
+				common_gpu_models: [],
+				lod_distribution: {},
+				feature_usage: {}
+			}
+		};
+	}
+
+	const totalSessions = metricsStore.length;
+	const averageFps = metricsStore.reduce((sum, m) => sum + m.fps, 0) / totalSessions;
+	const averageMemory = metricsStore.reduce((sum, m) => sum + m.memory_usage, 0) / totalSessions;
+
+	const gpuCounts: Record<string, number> = {};
+	metricsStore.forEach((m) => {
+		gpuCounts[m.gpu_model] = (gpuCounts[m.gpu_model] || 0) + 1;
+	});
+
+	const commonGPUModels = Object.entries(gpuCounts);
+		.sort(([, a], [, b]) => b - a)
+		.slice(0, 5)
+		.map(([model, count]) => ({ model, count }));
+
+	const lodDistribution: Record<string, number> = {};
+	metricsStore.forEach((m) => {
+		lodDistribution[m.lod_level] = (lodDistribution[m.lod_level] || 0) + 1;
+	});
+
+	const featureUsage: Record<string, number> = {};
+	metricsStore.forEach((m) => {
+		m.features_enabled?.forEach((f) => {
+			featureUsage[f] = (featureUsage[f] || 0) + 1;
+		});
+	});
+
+	const performance_issues = {
+		low_fps_sessions: metricsStore.filter((item) => item.fps < PERFORMANCE_THRESHOLDS.LOW_FPS).length,
+		high_memory_sessions: metricsStore.filter((item) => item.memory_usage > PERFORMANCE_THRESHOLDS.HIGH_MEMORY).length
+	};
+
+	return {
+		success: true,
+		summary: {
+			total_sessions: totalSessions,
+			average_fps: Math.round(averageFps * 100) / 100,
+			average_memory: Math.round(averageMemory),
+			common_gpu_models: commonGPUModels,
+			lod_distribution: lodDistribution,
+			feature_usage: featureUsage,
+			performance_issues
+		}
+	};
+}
+
+// Lightweight Go build/binary presence status. Purely best-effort and safe.
+function getGoBuildStatus() {
+	try {
+		const binEnv = process.env.GO_BIN_DIR;
+		const candidates = [;
+			binEnv && path.resolve(String(binEnv)),
+			path.resolve(process.cwd(), '../go-microservice/bin'),
+			path.resolve(process.cwd(), '../../go-microservice/bin')
+		].filter(Boolean) as string[];
+
+		const names = ['enhanced-rag', 'upload-service', 'grpc-server', 'load-balancer', 'rag-kratos', 'rag-quic-proxy'];
+		const binaries: Record<string, boolean> = {};
+
+		for (const name of names) {
+			const exes = [`${name}.exe`, name];
+			binaries[name] = candidates.some((dir) =>
+				exes.some((exe) => {
+					try {
+						return existsSync(path.join(dir, exe));
+					} catch (error) {
+						return false;
+					}
+				})
+			);
+		}
+
+		const anyPresent = Object.values(binaries).some(Boolean);
+		return {
+			any_present: anyPresent,
+			bin_dirs_checked: candidates,
+			binaries
+		};
+	} catch {
+		return {
+			any_present: false,
+			bin_dirs_checked: [],
+			binaries: {}
+		};
+	}
+}
+
+// Forward metrics to Go service (best-effort)
+async function forwardToGoService(metrics: GPUMetrics): Promise<void> {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout;
+
+	try {
+		const payload = {
+			metrics,
+			timestamp: Date.now(),
+			source: 'sveltekit-gpu-metrics'
+		};
+
+		const response = await fetch('http://localhost:8098/metrics/gpu', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify(payload),
+			signal: controller.signal
+		});
+
+		clearTimeout(timeoutId);
+
+		if (!response.ok) {
+			throw new Error(`Go service responded with ${response.status}`);
+		}
+	} catch (error) {
+		clearTimeout(timeoutId);
+		if (error instanceof Error && error.name === 'AbortError') {
+			throw new Error('Go service timeout');
+		}
+		const msg = error instanceof Error ? error.message : String(error);
+		throw new Error(`Go service unavailable: ${msg}`);
+	}
+}
+
+// Detect GPU model from rendering mode and other context (server-safe)
+function detectGPUModel(renderingMode?: string, userAgentOrPlatformHint?: string): string {
+	// Prefer explicit userAgent/platform hint if provided (safe on server)
+	const hint = typeof userAgentOrPlatformHint === 'string' && userAgentOrPlatformHint.length ?;
+		userAgentOrPlatformHint.toLowerCase() : '';
+
+	if (hint) {
+		if (hint.includes('nvidia')) return 'NVIDIA GeForce';
+		if (hint.includes('amd') || hint.includes('radeon')) return 'AMD Radeon';
+		if (hint.includes('intel')) return 'Intel Graphics';
+		if (hint.includes('apple') || hint.includes('mac')) return 'Apple GPU';
+	}
+
+	// Fall back to renderingMode hints
+	if (renderingMode === 'webgpu') return 'WebGPU Compatible';
+	if (renderingMode === 'webgl') return 'WebGL Compatible';
+
+	return 'Software Renderer';
+}
+
+// Determine LOD level based on performance metrics
+type GPUPerformanceSample = {
+	fps?: number;
+	effectsActive?: string[]; // expected list of active effect identifiers
+	memoryUsage?: number; // other optional fields are allowed but not required for LOD determination
+};
+
+function determineLODLevel(sample: GPUPerformanceSample): 'high' | 'medium' | 'low' {
+	const fps = typeof sample.fps === 'number' ? sample.fps : 0;
+	const effectsCount = Array.isArray(sample.effectsActive) ? sample.effectsActive.length : 0;
+	const memoryUsage = typeof sample.memoryUsage === 'number' ? sample.memoryUsage : 0;
+
+	if (fps >= 60 && effectsCount <= 2 && memoryUsage < 500) return 'high';
+	if (fps >= 30 && effectsCount <= 4 && memoryUsage < 1000) return 'medium';
+	return 'low';
+}
+
+// Generate a simple session ID
+function generateSessionId(): string {
+	return `gpu-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
