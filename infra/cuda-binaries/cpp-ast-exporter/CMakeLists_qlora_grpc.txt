@@ -1,0 +1,78 @@
+# Phase AST: QLoRA GRPC Service
+# Local-only GRPC server for training batch submission and metrics streaming
+
+cmake_minimum_required(VERSION 3.25)
+project(qlora_grpc_service LANGUAGES CXX CUDA)
+
+# Language standards
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+# Find dependencies
+find_package(CUDAToolkit REQUIRED)
+find_package(Torch REQUIRED PATHS "C:/libtorch-win-shared-with-deps-2.9.0+cu130/libtorch")
+
+# gRPC and Protobuf
+find_package(gRPC CONFIG REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
+
+# Include directories
+include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CUDAToolkit_INCLUDE_DIRS})
+include_directories(${TORCH_INCLUDE_DIRS})
+
+# Proto files
+set(PROTO_FILES
+    ${CMAKE_SOURCE_DIR}/proto/qlora_service.proto
+)
+
+# Generate gRPC and Protobuf files
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+grpc_generate_cpp(GRPC_SRCS GRPC_HDRS ${CMAKE_SOURCE_DIR}/proto/qlora_service.proto)
+
+# Source files
+set(QLORA_GRPC_SOURCES
+    src/qlora_grpc_service.cpp
+    src/rag_lora_trainer.cpp
+    ${PROTO_SRCS}
+    ${GRPC_SRCS}
+)
+
+# Create executable
+add_executable(qlora_grpc_service ${QLORA_GRPC_SOURCES})
+
+# Link libraries
+target_link_libraries(qlora_grpc_service PRIVATE
+    gRPC::grpc++
+    gRPC::grpc++_reflection
+    protobuf::libprotobuf
+    ${TORCH_LIBRARIES}
+    CUDA::cudart
+    CUDA::cuda_driver
+    CUDA::cublasLt
+)
+
+# Include directories
+target_include_directories(qlora_grpc_service PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}  # For generated proto files
+    ${CMAKE_SOURCE_DIR}/include
+    ${CUDAToolkit_INCLUDE_DIRS}
+    ${TORCH_INCLUDE_DIRS}
+)
+
+# Compile features
+target_compile_features(qlora_grpc_service PRIVATE cxx_std_17)
+
+# Compile options
+if(MSVC)
+    target_compile_options(qlora_grpc_service PRIVATE /arch:AVX2 /fp:fast /EHsc)
+else()
+    target_compile_options(qlora_grpc_service PRIVATE -O3 -mavx2 -ffast-math)
+endif()
+
+# CUDA properties
+set_target_properties(qlora_grpc_service PROPERTIES
+    CUDA_ARCHITECTURES "86"
+)

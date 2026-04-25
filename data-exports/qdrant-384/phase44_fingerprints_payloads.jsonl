@@ -1,0 +1,3 @@
+{"id":1,"payload":{"file":"(admin)\\+layout.svelte","issuesFixed":2,"issues":["Fixed 1 collapsed markup regions","Fixed 1 incomplete closing tags"]}}
+{"id":2,"payload":{"file":"(ai)\\case-scoring\\+page.svelte","issuesFixed":2,"issues":["Fixed 1 collapsed markup regions","Removed 1 duplicate content section(s)"]}}
+{"id":3,"payload":{"file":"(ai)\\document-drafting\\+page.svelte","issuesFixed":2,"issues":["Fixed 1 collapsed markup regions","Fixed 1 incomplete closing tags"]}}

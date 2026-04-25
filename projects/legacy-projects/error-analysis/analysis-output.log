@@ -1,0 +1,92 @@
+≡ƒöì Error Pattern Analyzer - Comprehensive Scan
+
+≡ƒÄ» Scanning C:\Users\james\Videos\deeds-web-app\sveltekit-frontend 
+
+≡ƒôè Found 4201 files to scan
+
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+≡ƒôï ERROR PATTERN ANALYSIS REPORT
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+≡ƒôè SUMMARY
+  Files scanned:        4201
+  Total errors found:   64675
+  Critical severity:    7989
+  High severity:        56630
+  Medium severity:      56
+
+≡ƒÄ» PATTERN BREAKDOWN (by frequency):
+  [TS001] Type annotation with comma instead of pipe
+    ΓööΓöÇ Occurrences: 56630 | Files affected: 3198
+  [CSS001] CSS commas instead of semicolons
+    ΓööΓöÇ Occurrences: 7492 | Files affected: 317
+  [OBJ001] Object literal commas instead of colons
+    ΓööΓöÇ Occurrences: 496 | Files affected: 273
+  [SYN002] Orphaned semicolon before brace
+    ΓööΓöÇ Occurrences: 56 | Files affected: 2
+  [OBJ002] Semicolons between object properties
+    ΓööΓöÇ Occurrences: 1 | Files affected: 1
+  [SYN001] Double commas
+    ΓööΓöÇ Occurrences: 0 | Files affected: 0
+  [CSS002] CSS double commas
+    ΓööΓöÇ Occurrences: 0 | Files affected: 0
+  [SYN003] Trailing comma in function arguments
+    ΓööΓöÇ Occurrences: 0 | Files affected: 0
+
+ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+≡ƒöº DETAILED PATTERN INFORMATION
+
+[CSS001] CSS commas instead of semicolons
+  Severity: CRITICAL
+  Description: CSS properties separated by commas instead of semicolons or mixed
+  Example: top: 10px, right: 10px; background: red
+  Detected: 7492 occurrence(s)
+  Affected files: 317
+    1. sveltekit-frontend\src\routes\RoutesList.svelte
+    2. sveltekit-frontend\src\routes\page.simple.svelte
+    3. sveltekit-frontend\src\routes\layout.complex.svelte
+    ... and 314 more files
+
+[OBJ001] Object literal commas instead of colons
+  Severity: CRITICAL
+  Description: Object properties using commas instead of colons: { key, value }
+  Example: { prop, 123 } should be { prop: 123 }
+  Detected: 496 occurrence(s)
+  Affected files: 273
+    1. sveltekit-frontend\src\routes\status\+page.svelte
+    2. sveltekit-frontend\src\routes\persons\+page.svelte
+    3. sveltekit-frontend\src\routes\mcp\+page.svelte
+    ... and 270 more files
+
+[OBJ002] Semicolons between object properties
+  Severity: CRITICAL
+  Description: Object properties separated by semicolons instead of commas
+  Example: { a: 1; b: 2 } should be { a: 1, b: 2 }
+  Detected: 1 occurrence(s)
+  Affected files: 1
+    1. sveltekit-frontend\src\lib\telemetry\telemetry-bus.js
+
+[SYN002] Orphaned semicolon before brace
+  Severity: MEDIUM
+  Description: Semicolon immediately before closing brace
+  Example: { a: 1; }
+  Detected: 56 occurrence(s)
+  Affected files: 2
+    1. sveltekit-frontend\src\lib\services\rabbitmq-xstate-bridge.js
+    2. sveltekit-frontend\src\lib\stores\_archive\old-stores\legal-ai-machine.js
+
+[TS001] Type annotation with comma instead of pipe
+  Severity: HIGH
+  Description: Type union using comma instead of pipe: Type1, Type2
+  Example: const x: string, number = 5;
+  Detected: 56630 occurrence(s)
+  Affected files: 3198
+    1. sveltekit-frontend\src\routes\RoutesList.svelte
+    2. sveltekit-frontend\src\routes\page.simple.svelte
+    3. sveltekit-frontend\src\routes\layout.complex.svelte
+    ... and 3195 more files
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+Γ£à Results saved to: error-analysis\error-patterns.json

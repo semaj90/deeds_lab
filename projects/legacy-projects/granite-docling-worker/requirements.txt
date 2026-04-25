@@ -1,0 +1,51 @@
+# Core dependencies
+python-dotenv>=0.21.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# CPU/GPU utilities
+psutil>=5.9.0
+py-cpuinfo>=9.0.0
+numpy>=1.24.0
+
+# Document processing
+pytesseract>=0.3.10
+Pillow>=9.5.0
+opencv-python>=4.7.0
+
+# GPU Processing (Phase 2-3 additions)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Storage and caching
+minio>=7.1.0
+redis>=4.5.0
+hiredis>=2.2.0
+
+# Async and concurrency
+aiofiles>=23.1.0
+asyncio-contextmanager>=1.0.0
+
+# Logging and monitoring
+python-json-logger>=2.0.0
+prometheus-client>=0.16.0
+
+# API and web
+fastapi>=0.95.0
+uvicorn>=0.21.0
+httpx>=0.24.0
+
+# Data processing
+pandas>=1.5.0
+scikit-learn>=1.2.0
+
+# Testing (optional)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+
+# Development (optional)
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+isort>=5.12.0

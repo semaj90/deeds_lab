@@ -1,0 +1,623 @@
+================================================================================
+ GO BINARY DEEP AUDIT — deeds_labs/
+ Generated: April 9, 2026
+ Tool: go version -m (C:\Program Files\Go\bin\go.exe)
+ Scope: All .exe files >100KB in deeds_labs/
+================================================================================
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  EXECUTIVE SUMMARY                                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Total binaries:     160
+Total size:         2,575 MB (2.5 GB)
+Go binaries:        141 (2,382 MB)
+Non-Go binaries:     19 (193 MB)
+Duplicates:           1 group (webasm-gpu-middleware, 2 copies)
+
+VERDICT: ALL 160 binaries are SUPERSEDED by the active SvelteKit platform.
+         None provide functionality missing from the TypeScript stack.
+         Safe to delete entirely.
+
+Stack Gap Analysis (April 9, 2026):
+  - Embedding: SvelteKit has 4-tier fallback (gRPC → HTTP → nomic → client ONNX)
+  - RAG: 8-stage pipeline with Qdrant + pgvector + legal chunking
+  - GPU: LibTorch + CUDA kernels via N-API, simd-bridge addon
+  - Chat: SSE streaming + Redis Streams + ACE self-eval
+  - Upload: 8-stage evidence pipeline (MinIO → OCR → chunk → embed → vector)
+  - Vector: 14 Qdrant collections (768-dim, INT8)
+  - Graph: Neo4j + PostgreSQL fallback knowledge graph
+  - gRPC: active client with HTTP/Ollama fallback
+  - Queuing: RabbitMQ 7-queue manager
+  - Health: 15+ probes across all services
+  - MCP: 20+ tools via FastMCP
+  - XState: 9+ state machines for client orchestration
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  BREAKDOWN BY GO VERSION                                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+   84x  go1.25.0       (latest, bulk of cmd/ microservices)
+   55x  go1.24.5       (previous stable, older builds)
+   19x  unknown        (non-Go: C++, Rust, Redis, MSYS2, test data)
+    1x  go1.23.12      (esbuild binary only)
+    1x  go1.21.5       (nats-server binary only)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  BREAKDOWN BY CATEGORY                                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  73 Service        1,219 MB   General microservices (legal-ai-*, cluster-*, orchestrator-*)
+  23 GPU/CUDA         310 MB   CUDA workers, tensor services, GPU orchestrators
+  21 Networking       303 MB   QUIC bridges, gateways, NATS, multi-protocol
+  18 AI/RAG           385 MB   RAG pipelines, vector services, embedding servers
+   7 Document         136 MB   Upload services, PDF processors, document ingestion
+   7 Transport         80 MB   gRPC servers, protoc, protoc-gen-go
+   6 Observability     67 MB   Health servers, metrics, monitoring
+   5 SIMD              75 MB   SIMD JSON parsers, HTTP accelerators
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  BREAKDOWN BY DIRECTORY                                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  74 in archived-dead-code   1,334 MB   (original go-microservice cmd/ builds)
+  44 in snapshots              570 MB   (time-stamped full project backups)
+  29 in services               579 MB   (go-microservice-archive + python-middleware)
+   6 in infra                   28 MB   (CUDA binaries, cmake builds)
+   4 in projects                49 MB   (ai-postgresql, esbuild, cl, test)
+   2 in frontend                14 MB   (nats-server, WardenNet)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  BUILD METADATA                                                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+CGO_ENABLED=1:     136 / 141 Go binaries (96%)
+With git revision:  54 / 160
+Dirty builds:       52 / 54  (96% of tracked builds)
+GOARCH:             amd64 (all)
+GOOS:               windows (all)
+
+Module paths found:
+  legal-ai-production                            (primary monorepo — 130+ binaries)
+  legal-ai-platform                              (earlier module name)
+  legal-ai-cuda                                  (CUDA-specific module)
+  cuda-http-service                              (standalone CUDA HTTP)
+  tensorrt-llm-service                           (TensorRT wrapper)
+  deeds-web-app/simd-quic                        (SIMD+QUIC hybrid)
+  microservice                                   (early unnamed module)
+  github.com/legal-ai/legal-ai-production/...    (full github path variants)
+  github.com/evanw/esbuild                       (bundler binary)
+  github.com/nats-io/nats-server/v2              (NATS messaging server)
+  google.golang.org/grpc/cmd/protoc-gen-go-grpc  (gRPC codegen)
+  google.golang.org/protobuf                     (proto codegen)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  TOP 25 DEPENDENCIES (across all 141 Go binaries)                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 94x  golang.org/x/text                          (Unicode/string processing)
+ 89x  golang.org/x/sys                           (OS syscalls)
+ 87x  golang.org/x/crypto                        (TLS, hashing)
+ 86x  golang.org/x/net                           (HTTP/2, QUIC)
+ 78x  google.golang.org/protobuf                 (Protocol Buffers)
+ 66x  github.com/cespare/xxhash/v2               (fast hashing)
+ 64x  github.com/gin-gonic/gin                   (HTTP framework)
+ 64x  github.com/gin-contrib/sse                 (SSE for Gin)
+ 64x  github.com/go-playground/validator/v10      (struct validation)
+ 64x  github.com/go-playground/locales           (i18n)
+ 64x  github.com/go-playground/universal-translator
+ 64x  github.com/ugorji/go/codec                 (msgpack/cbor codec)
+ 64x  github.com/pelletier/go-toml/v2            (TOML config)
+ 64x  github.com/leodido/go-urn                  (URN parsing)
+ 64x  github.com/gabriel-vasile/mimetype          (MIME detection)
+ 64x  github.com/mattn/go-isatty                  (terminal detection)
+ 60x  github.com/dgryski/go-rendezvous           (consistent hashing)
+ 60x  gopkg.in/yaml.v3                           (YAML config)
+ 32x  github.com/jackc/pgx/v5                    (PostgreSQL driver)
+ 32x  github.com/jackc/pgpassfile                (pg auth)
+ 32x  github.com/jackc/pgservicefile             (pg service file)
+ 31x  github.com/redis/go-redis/v9               (Redis v9 client)
+ 30x  github.com/go-redis/redis/v8               (Redis v8 client — older)
+ 26x  golang.org/x/sync                          (sync primitives)
+ 15x  google.golang.org/grpc                     (gRPC framework)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  NON-GO BINARIES (19 files, 193 MB)                                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  77.4 MB  snapshots/2026-03-10/root-stale/services/qdrant.exe          (Rust — Qdrant vector DB)
+  75.3 MB  archived-dead-code/go-microservice/msys2-installer.exe       (MSYS2 installer)
+  11.0 MB  archived-dead-code/go-microservice/protoc.exe                (Protocol Buffers compiler)
+   2.0 MB  archived-dead-code/.go-cache/.../testdata/exe.exe            (mimetype test fixture)
+   1.5 MB  snapshots/2026-03-10/root-stale/services/redis-server.exe   (Redis server)
+   1.1 MB  snapshots/2026-03-10/root-stale/build/bin/Debug/ast_graph_exporter.exe  (C++ build)
+   0.9 MB  infra/cuda-binaries/cuda-worker/cuda-worker.exe             (C++/CUDA binary)
+   0.8 MB  frontend/sveltekit-frontend-archive/.../WardenNet.exe        (C++/CUDA debug build)
+   0.7 MB  services/go-microservice-archive/test-builds/test-proto.exe  (test binary)
+   0.6 MB  infra/cuda-binaries/.../rag_lora_trainer.exe                (C++ CUDA trainer)
+   0.5 MB  services/python-middleware/.../code_quality_ranker.exe       (C++ ML ranker)
+   0.5 MB  snapshots/.../redis-cli.exe                                 (Redis CLI)
+   0.4 MB  snapshots/.../redis-benchmark.exe                           (Redis benchmark)
+   0.4 MB  infra/cuda-binaries/cuda-worker/cuda-worker-clang.exe       (Clang-compiled CUDA)
+   0.4 MB  frontend/.../CompilerIdCUDA.exe                             (CMake CUDA compiler ID)
+   0.3 MB  archived-dead-code/.go-cache/.../exe_windows_64.exe         (pprof test fixture)
+   0.3 MB  snapshots/.../redis-check-dump.exe                          (Redis RDB checker)
+   0.2 MB  snapshots/.../redis-check-aof.exe                           (Redis AOF checker)
+   0.1 MB  infra/cuda-binaries/.../profiling_dashboard.exe             (C++ profiling tool)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  GPU/CUDA BINARIES (23 files, 310 MB) — DETAILED                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 28.3 MB  enhanced-rag-cuda        go1.24.5  deps=35  git=f6041b48  [services]
+          → Full RAG+CUDA: pgx, gin, redis, qdrant, amqp, grpc
+ 28.1 MB  cuda-service-enhanced    go1.24.5  deps=28  git=f6041b48  [services]
+          → CUDA service: pgx, gin, redis, protobuf
+ 27.9 MB  cuda-service             go1.24.5  deps=26  git=-         [archived-dead-code]
+          → Base CUDA service: pgx, gin, redis
+ 22.3 MB  cuda-gpu-orchestrator    go1.24.5  deps=20  git=-         [archived-dead-code]
+          → GPU orchestrator: gin, redis, protobuf
+ 21.7 MB  advanced-cuda-service    go1.24.5  deps=18  git=-         [archived-dead-code]
+          → Advanced CUDA: gin, redis
+ 21.5 MB  cuda-ai-service-go124    go1.24.5  deps=20  git=2d54637b  [archived-dead-code]
+          → CUDA+AI: gin, redis, pgx, protobuf
+ 21.2 MB  cuda-ai-service          go1.25.0  deps=20  git=c5be92cc  [archived-dead-code]
+          → Same as above, go1.25 rebuild
+ 20.7 MB  cuda-integration-service go1.24.5  deps=16  git=-         [archived-dead-code]
+          → Integration: gin, redis
+ 18.2 MB  cuda-service-worker      go1.25.0  deps=23  git=-         [snapshots]
+          → Worker: gin, redis, protobuf, amqp
+ 18.0 MB  cuda-search-service      go1.25.0  deps=22  git=-         [infra]
+          → Search: gin, redis, protobuf
+ 15.0 MB  cuda-ai-service-go125    go1.25.0  deps=20  git=5b4356b0  [archived-dead-code]
+          → go1.25 rebuild of cuda-ai-service
+ 12.0 MB  gpu-cluster-executor     go1.25.0  deps=7   git=8a31c41a  [snapshots]
+          → Lightweight executor: protobuf, xxhash
+  9.8 MB  gpu-inference-clean      go1.25.0  deps=4   git=-         [services]
+          → Minimal inference: protobuf, sys
+  9.2 MB  gpu-memory-manager       go1.25.0  deps=4   git=-         [snapshots]
+          → Memory manager: protobuf, sys
+  8.8 MB  gpu-tensor-service       go1.25.0  deps=3   git=c5be92cc  [archived-dead-code]
+          → Tensor ops: protobuf
+  8.7 MB  legal-ai-cuda            go1.25.0  deps=2   git=cb20ef4f  [snapshots]
+          → Minimal legal-AI CUDA: net, crypto
+  8.5 MB  agentic-cuda-parser      go1.24.5  deps=0   git=-         [archived-dead-code]
+          → CLI-only, no deps
+  8.1 MB  cuda-http-service        go1.25.0  deps=0   git=cb20ef4f  [infra]
+          → CLI-only, standalone HTTP
+  0.9 MB  cuda-worker              unknown   deps=0   git=-         [infra]
+          → C++/CUDA compiled binary (not Go)
+  0.6 MB  rag_lora_trainer         unknown   deps=0   git=-         [infra]
+          → C++ CUDA LoRA trainer (not Go)
+  0.4 MB  cuda-worker-clang        unknown   deps=0   git=-         [infra]
+          → Clang-compiled CUDA worker (not Go)
+  0.4 MB  CompilerIdCUDA           unknown   deps=0   git=-         [frontend]
+          → CMake compiler identification (not Go)
+  0.1 MB  profiling_dashboard      unknown   deps=0   git=-         [infra]
+          → C++ profiling tool (not Go)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  AI/RAG BINARIES (18 files, 385 MB) — DETAILED                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 43.6 MB  rag-kratos               go1.24.5  deps=51  git=8d967770  [archived-dead-code]
+          → Most complex: pgx, gin, redis v8+v9, grpc, amqp, uuid, yaml
+ 42.2 MB  vector-consumer-v2       go1.25.0  deps=30  git=a63833db  [services]
+          → Heavy: pgx, gin, redis, grpc, protobuf
+ 28.3 MB  enhanced-rag-v2          go1.24.5  deps=35  git=f6041b48  [services]
+          → Full RAG: pgx, gin, redis, grpc, amqp
+ 27.5 MB  enhanced-rag-go125       go1.25.0  deps=33  git=5b4356b0  [services]
+          → go1.25 rebuild of enhanced-rag
+ 27.4 MB  production-rag           go1.25.0  deps=34  git=c5be92cc  [archived-dead-code]
+          → Production-targeted: pgx, gin, redis, grpc, amqp
+ 26.5 MB  enhanced-rag-som-system  go1.24.5  deps=24  git=-         [snapshots]
+          → SOM (Self-Organizing Map) variant
+ 26.2 MB  enhanced-rag             go1.24.5  deps=18  git=f5ce9068  [services]
+          → Base enhanced RAG: pgx, gin, redis
+ 26.2 MB  enhanced-rag-service     go1.24.5  deps=18  git=-         [services]
+          → Same as enhanced-rag, separate build
+ 24.0 MB  embedding-server         go1.25.0  deps=9   git=1cbfa737  [archived-dead-code]
+          → Embedding: grpc, protobuf, xxhash
+ 18.3 MB  enhanced-rag-updated     go1.24.5  deps=24  git=-         [snapshots]
+          → Updated variant with extra deps
+ 15.1 MB  simple-vector-service    go1.24.5  deps=12  git=-         [archived-dead-code]
+          → Simplified: pgx, gin
+ 14.7 MB  vector-service-go124     go1.24.5  deps=10  git=82dc580d  [archived-dead-code]
+          → go1.24 vector service: pgx, gin
+ 14.4 MB  vector-service           go1.25.0  deps=10  git=2ee0e742  [archived-dead-code]
+          → Base vector: pgx, gin
+ 12.8 MB  vector-redis-service     go1.24.5  deps=16  git=-         [archived-dead-code]
+          → Vector+Redis: pgx, gin, redis
+ 10.3 MB  vector-service-go125     go1.25.0  deps=10  git=5b4356b0  [archived-dead-code]
+          → go1.25 rebuild of vector-service
+ 10.0 MB  context7-rag-query-server go1.25.0 deps=2   git=-         [services]
+          → Lightweight query server
+  9.3 MB  context7-rag-pipeline    go1.25.0  deps=2   git=-         [services]
+          → Lightweight pipeline
+  8.0 MB  enhanced-rag-som         go1.25.0  deps=1   git=-         [services]
+          → Minimal SOM worker
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  NETWORKING BINARIES (21 files, 303 MB) — DETAILED                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 37.9 MB  multi-protocol-gateway       go1.25.0  deps=27  git=-         [archived-dead-code]
+ 35.0 MB  multi-protocol-gateway-w/e   go1.25.0  deps=26  git=-         [archived-dead-code]
+ 33.3 MB  quic-nats-bridge             go1.25.0  deps=24  git=1cbfa737  [archived-dead-code]
+ 16.0 MB  quic-bridge                  go1.25.0  deps=18  git=8568f1a8  [archived-dead-code]
+ 15.5 MB  rag-quic-proxy               go1.24.5  deps=13  git=8d967770  [archived-dead-code]
+ 13.7 MB  nats-server                  go1.21.5  deps=9   git=fa8464d5  [frontend]
+ 13.3 MB  tensorrt-bridge-quic         go1.25.0  deps=19  git=-         [archived-dead-code]
+ 11.6 MB  quic-ai-stream               go1.25.0  deps=8   git=-         [archived-dead-code]
+ 11.5 MB  quic-vector-proxy            go1.25.0  deps=7   git=-         [archived-dead-code]
+ 11.0 MB  quic-gateway                 go1.25.0  deps=7   git=-         [archived-dead-code]
+ 11.0 MB  tensor-quic-auth             go1.25.0  deps=9   git=-         [snapshots]
+ 11.0 MB  legal-ai-quic-auth           go1.25.0  deps=9   git=-         [snapshots]
+ 11.0 MB  legal-ai-quic-server         go1.25.0  deps=9   git=-         [snapshots]
+ 10.9 MB  legal-ai-quic-server-fixed   go1.25.0  deps=9   git=-         [snapshots]
+ 10.9 MB  legal-ai-quic-server-v125    go1.25.0  deps=9   git=-         [snapshots]
+ 10.8 MB  legal-gateway                go1.25.0  deps=11  git=-         [snapshots]
+ 10.5 MB  quic-tensor-server           go1.25.0  deps=10  git=-         [archived-dead-code]
+  8.8 MB  simd-quic                    go1.25.0  deps=0   git=c68e9fdf  [archived-dead-code]
+  8.7 MB  tensorrt-bridge              go1.25.0  deps=2   git=-         [snapshots]
+  8.3 MB  quic-coordinator-simplified  go1.24.5  deps=0   git=-         [snapshots]
+  2.4 MB  quic-agent                   go1.25.0  deps=0   git=c68e9fdf  [archived-dead-code]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  GENERAL SERVICE BINARIES (73 files, 1,219 MB) — TOP 30                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 77.4 MB  qdrant                          unknown   deps=0   [snapshots]  ← Rust binary
+ 75.3 MB  msys2-installer                 unknown   deps=0   [archived]   ← MSYS2 installer
+ 37.6 MB  mcp-gpu-orchestrator            go1.24.5  deps=27  [snapshots]
+ 36.6 MB  recommendations-service         go1.25.0  deps=27  [archived]
+ 35.3 MB  test-ai-chat-service            go1.24.5  deps=23  [services]
+ 34.9 MB  test-combined                   go1.25.0  deps=26  [services]
+ 33.7 MB  enhanced-legal-ai-redis         go1.24.5  deps=23  [services]
+ 33.7 MB  enhanced-legal-ai-fixed         go1.24.5  deps=23  [services]
+ 29.2 MB  summarizer-http                 go1.24.5  deps=19  [archived]
+ 29.2 MB  test-build                      go1.24.5  deps=19  [services]
+ 29.2 MB  summarizer-service              go1.24.5  deps=19  [archived]
+ 29.1 MB  legal-ai-service                go1.25.0  deps=21  [archived]
+ 28.7 MB  legal-ai-orchestrator           go1.25.0  deps=20  [archived]
+ 26.8 MB  ai-enhanced-postgresql          go1.24.5  deps=19  [projects]
+ 25.7 MB  main-service                    go1.25.0  deps=23  [archived]
+ 25.3 MB  cluster-http                    go1.24.5  deps=17  [archived]
+ 23.5 MB  enhanced-multicore              go1.24.5  deps=25  [services]
+ 23.3 MB  enhanced-legal-ai               go1.24.5  deps=23  [services]
+ 21.3 MB  simple-api-endpoints            go1.24.5  deps=17  [archived]
+ 21.0 MB  gpu-orchestrator-service        go1.24.5  deps=17  [archived]
+ 20.7 MB  enhanced-api-endpoints          go1.24.5  deps=17  [services]
+ 20.7 MB  tensor-service                  go1.25.0  deps=10  [archived]
+ 20.6 MB  cluster-service                 go1.24.5  deps=17  [archived]
+ 20.5 MB  webasm-gpu-middleware ×2        go1.24.5  deps=19  [snapshots]
+ 20.4 MB  gpu-orchestrator-service-fixed  go1.25.0  deps=17  [services]
+ 20.3 MB  metrics-server                  go1.25.0  deps=25  [snapshots]
+ 20.2 MB  cognitive-microservice          go1.25.0  deps=20  [snapshots]
+ 20.1 MB  xstate-manager                  go1.24.5  deps=18  [archived]
+ 19.6 MB  simple-upload-fixed             go1.24.5  deps=17  [services]
+ 18.4 MB  legal-extraction-service        go1.25.0  deps=24  [snapshots]
+
+(43 more smaller binaries — see FULL LISTING below)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  DOCUMENT BINARIES (7 files, 136 MB)                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 26.2 MB  upload-service-new       go1.24.5  deps=25  git=f6041b48  [archived-dead-code]
+ 26.1 MB  upload-service           go1.24.5  deps=25  git=ee2b900c  [archived-dead-code]
+ 22.4 MB  gin-upload               go1.24.5  deps=30  git=-         [archived-dead-code]
+ 19.6 MB  simple-upload-fixed      go1.24.5  deps=17  git=-         [services]
+ 17.9 MB  upload-service-go125     go1.25.0  deps=25  git=5b4356b0  [archived-dead-code]
+ 12.1 MB  streaming-pdf-processor  go1.25.0  deps=19  git=-         [snapshots]
+ 11.5 MB  simple-upload            go1.24.5  deps=17  git=-         [archived-dead-code]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  TRANSPORT BINARIES (7 files, 80 MB)                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 15.4 MB  grpc-server-go124        go1.24.5  deps=6   git=f6041b48  [archived-dead-code]
+ 15.1 MB  grpc-server              go1.24.5  deps=6   git=ee911a10  [archived-dead-code]
+ 11.0 MB  protoc                   unknown   deps=0   git=-         [archived-dead-code]
+ 10.6 MB  grpc-server-go125        go1.25.0  deps=6   git=5b4356b0  [archived-dead-code]
+  9.6 MB  protoc-gen-go            go1.25.0  deps=0   git=-         [snapshots]
+  9.2 MB  protoc-gen-go-grpc       go1.25.0  deps=1   git=-         [snapshots]
+  8.9 MB  legal-ai-grpc            go1.25.0  deps=4   git=-         [snapshots]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  OBSERVABILITY BINARIES (6 files, 67 MB)                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 20.3 MB  metrics-server           go1.25.0  deps=25  git=8a31c41a  [snapshots]
+ 19.0 MB  simd-health              go1.25.0  deps=16  git=c5be92cc  [archived-dead-code]
+  8.1 MB  mock-health              go1.24.5  deps=0   git=-         [snapshots]
+  8.0 MB  health-server            go1.25.0  deps=0   git=f3da0f1b  [snapshots]
+  5.6 MB  health-server-prod       go1.25.0  deps=0   git=f3da0f1b  [snapshots]
+  5.6 MB  health-server-service    go1.25.0  deps=0   git=f3da0f1b  [snapshots]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  SIMD BINARIES (5 files, 75 MB)                                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ 27.6 MB  json-ultra-simd-parser   go1.25.0  deps=18  git=-         [archived-dead-code]
+ 20.7 MB  simd-parser              go1.24.5  deps=19  git=-         [archived-dead-code]
+  9.6 MB  neo4j-simd-worker        go1.25.0  deps=19  git=-         [archived-dead-code]
+  9.0 MB  simd-json-accelerator    go1.25.0  deps=5   git=-         [snapshots]
+  8.4 MB  simd-http-server         go1.25.0  deps=3   git=-         [archived-dead-code]
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  FULL LISTING — ALL 160 BINARIES (sorted by size descending)               ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  SIZE MB  CATEGORY        GO VER      DEPS  GIT REV     NAME                              DIR
+  ------  --------------  ----------  ----  ----------  --------------------------------  --------
+   77.4   Service         unknown        0  -           qdrant                            snapshots
+   75.3   Service         unknown        0  -           msys2-installer                   archived-dead-code
+   43.6   AI/RAG          go1.24.5      51  8d967770    rag-kratos                        archived-dead-code
+   42.2   AI/RAG          go1.25.0      30  a63833db    vector-consumer-v2                services
+   37.9   Networking      go1.25.0      27  -           multi-protocol-gateway            archived-dead-code
+   37.6   Service         go1.24.5      27  -           mcp-gpu-orchestrator              snapshots
+   36.6   Service         go1.25.0      27  c5be92cc    recommendations-service           archived-dead-code
+   35.3   Service         go1.24.5      23  -           test-ai-chat-service              services
+   35.0   Networking      go1.25.0      26  -           multi-protocol-gateway-with-embed archived-dead-code
+   34.9   Service         go1.25.0      26  -           test-combined                     services
+   33.7   Service         go1.24.5      23  -           enhanced-legal-ai-redis           services
+   33.7   Service         go1.24.5      23  -           enhanced-legal-ai-fixed           services
+   33.3   Networking      go1.25.0      24  1cbfa737    quic-nats-bridge                  archived-dead-code
+   29.2   Service         go1.24.5      19  2888a167    summarizer-http                   archived-dead-code
+   29.2   Service         go1.24.5      19  8d967770    test-build                        services
+   29.2   Service         go1.24.5      19  8d967770    summarizer-service                archived-dead-code
+   29.1   Service         go1.25.0      21  -           legal-ai-service                  archived-dead-code
+   28.7   Service         go1.25.0      20  -           legal-ai-orchestrator             archived-dead-code
+   28.3   AI/RAG          go1.24.5      35  f6041b48    enhanced-rag-v2                   services
+   28.3   GPU/CUDA        go1.24.5      35  f6041b48    enhanced-rag-cuda                 services
+   28.1   GPU/CUDA        go1.24.5      28  f6041b48    cuda-service-enhanced             services
+   27.9   GPU/CUDA        go1.24.5      26  -           cuda-service                      archived-dead-code
+   27.6   SIMD            go1.25.0      18  -           json-ultra-simd-parser            archived-dead-code
+   27.5   AI/RAG          go1.25.0      33  5b4356b0    enhanced-rag-go125                services
+   27.4   AI/RAG          go1.25.0      34  c5be92cc    production-rag                    archived-dead-code
+   26.8   Service         go1.24.5      19  -           ai-enhanced-postgresql            projects
+   26.5   AI/RAG          go1.24.5      24  -           enhanced-rag-som-system           snapshots
+   26.2   AI/RAG          go1.24.5      18  f5ce9068    enhanced-rag                      services
+   26.2   AI/RAG          go1.24.5      18  -           enhanced-rag-service              services
+   26.2   Document        go1.24.5      25  f6041b48    upload-service-new                archived-dead-code
+   26.1   Document        go1.24.5      25  ee2b900c    upload-service                    archived-dead-code
+   25.7   Service         go1.25.0      23  -           main-service                      archived-dead-code
+   25.3   Service         go1.24.5      17  8d967770    cluster-http                      archived-dead-code
+   24.0   AI/RAG          go1.25.0       9  1cbfa737    embedding-server                  archived-dead-code
+   23.5   Service         go1.24.5      25  -           enhanced-multicore                services
+   23.3   Service         go1.24.5      23  -           enhanced-legal-ai                 services
+   22.4   Document        go1.24.5      30  -           gin-upload                        archived-dead-code
+   22.3   GPU/CUDA        go1.24.5      20  -           cuda-gpu-orchestrator             archived-dead-code
+   21.7   GPU/CUDA        go1.24.5      18  -           advanced-cuda-service             archived-dead-code
+   21.5   GPU/CUDA        go1.24.5      20  2d54637b    cuda-ai-service-go124             archived-dead-code
+   21.3   Service         go1.24.5      17  -           simple-api-endpoints              archived-dead-code
+   21.2   GPU/CUDA        go1.25.0      20  c5be92cc    cuda-ai-service                   archived-dead-code
+   21.0   Service         go1.24.5      17  -           gpu-orchestrator-service          archived-dead-code
+   20.7   Service         go1.24.5      17  -           enhanced-api-endpoints            services
+   20.7   Service         go1.25.0      10  -           tensor-service                    archived-dead-code
+   20.7   SIMD            go1.24.5      19  -           simd-parser                       archived-dead-code
+   20.7   GPU/CUDA        go1.24.5      16  -           cuda-integration-service          archived-dead-code
+   20.6   Service         go1.24.5      17  2d54637b    cluster-service                   archived-dead-code
+   20.5   Service         go1.24.5      19  1118765f    webasm-gpu-middleware              snapshots
+   20.5   Service         go1.24.5      19  1118765f    webasm-gpu-middleware              snapshots
+   20.4   Service         go1.25.0      17  -           gpu-orchestrator-service-fixed    services
+   20.3   Observability   go1.25.0      25  8a31c41a    metrics-server                    snapshots
+   20.2   Service         go1.25.0      20  -           cognitive-microservice             snapshots
+   20.1   Service         go1.24.5      18  -           xstate-manager                    archived-dead-code
+   19.6   Document        go1.24.5      17  -           simple-upload-fixed               services
+   19.0   Observability   go1.25.0      16  c5be92cc    simd-health                       archived-dead-code
+   18.4   Service         go1.25.0      24  -           legal-extraction-service          snapshots
+   18.4   Service         go1.25.0      24  -           sequential-kg-service             snapshots
+   18.3   AI/RAG          go1.24.5      24  -           enhanced-rag-updated              snapshots
+   18.2   GPU/CUDA        go1.25.0      23  -           cuda-service-worker               snapshots
+   18.0   GPU/CUDA        go1.25.0      22  -           cuda-search-service               infra
+   17.9   Document        go1.25.0      25  5b4356b0    upload-service-go125              archived-dead-code
+   17.1   Service         go1.25.0       6  519c6b70    ai-service                        archived-dead-code
+   16.0   Networking      go1.25.0      18  8568f1a8    quic-bridge                       archived-dead-code
+   15.9   Service         go1.25.0      22  f3da0f1b    gpu-orchestrator                  snapshots
+   15.9   Service         go1.25.0      22  f3da0f1b    gpu-orchestrator-prod             snapshots
+   15.7   Service         go1.25.0       8  609b8d1f    aiserver-service                  archived-dead-code
+   15.5   Networking      go1.24.5      13  8d967770    rag-quic-proxy                    archived-dead-code
+   15.4   Service         go1.25.0      29  -           artifact-indexing                 archived-dead-code
+   15.4   Transport       go1.24.5       6  f6041b48    grpc-server-go124                 archived-dead-code
+   15.4   Service         go1.25.0      29  -           artifact-indexing-service         archived-dead-code
+   15.1   Service         go1.24.5      13  -           modular-cluster-service-production services
+   15.1   AI/RAG          go1.24.5      12  -           simple-vector-service             archived-dead-code
+   15.1   Transport       go1.24.5       6  ee911a10    grpc-server                       archived-dead-code
+   15.1   Service         go1.25.0      12  06c74ee8    collector                         archived-dead-code
+   15.0   GPU/CUDA        go1.25.0      20  5b4356b0    cuda-ai-service-go125             archived-dead-code
+   14.7   AI/RAG          go1.24.5      10  82dc580d    vector-service-go124              archived-dead-code
+   14.4   AI/RAG          go1.25.0      10  2ee0e742    vector-service                    archived-dead-code
+   13.7   Service         go1.25.0      18  -           generative-service-worker         archived-dead-code
+   13.7   Networking      go1.21.5       9  fa8464d5    nats-server                       frontend
+   13.3   Networking      go1.25.0      19  -           tensorrt-bridge-quic              archived-dead-code
+   12.8   AI/RAG          go1.24.5      16  -           vector-redis-service              archived-dead-code
+   12.6   Service         go1.25.0      22  -           minio-streaming-orchestrator      snapshots
+   12.1   Document        go1.25.0      19  -           streaming-pdf-processor           snapshots
+   12.0   GPU/CUDA        go1.25.0       7  8a31c41a    gpu-cluster-executor              snapshots
+   11.6   Networking      go1.25.0       8  -           quic-ai-stream                    archived-dead-code
+   11.5   Document        go1.24.5      17  -           simple-upload                     archived-dead-code
+   11.5   Networking      go1.25.0       7  -           quic-vector-proxy                 archived-dead-code
+   11.0   Networking      go1.25.0       9  -           legal-ai-quic-server              snapshots
+   11.0   Transport       unknown        0  -           protoc                            archived-dead-code
+   11.0   Networking      go1.25.0       9  -           tensor-quic-auth                  snapshots
+   11.0   Networking      go1.25.0       7  -           quic-gateway                      archived-dead-code
+   11.0   Networking      go1.25.0       9  -           legal-ai-quic-auth                snapshots
+   10.9   Networking      go1.25.0       9  -           legal-ai-quic-server-v125         snapshots
+   10.9   Networking      go1.25.0       9  -           legal-ai-quic-server-fixed        snapshots
+   10.8   Networking      go1.25.0      11  -           legal-gateway                     snapshots
+   10.6   Transport       go1.25.0       6  5b4356b0    grpc-server-go125                 archived-dead-code
+   10.5   Networking      go1.25.0      10  -           quic-tensor-server                archived-dead-code
+   10.3   AI/RAG          go1.25.0      10  5b4356b0    vector-service-go125              archived-dead-code
+   10.1   Service         go1.25.0       2  -           enhanced-llama-chat-service       services
+   10.1   Service         go1.23.12      0  208f5399    esbuild                           projects
+   10.0   AI/RAG          go1.25.0       2  -           context7-rag-query-server         services
+    9.8   GPU/CUDA        go1.25.0       4  -           gpu-inference-clean               services
+    9.6   Service         go1.25.0      10  06c74ee8    aggregator                        archived-dead-code
+    9.6   SIMD            go1.25.0      19  -           neo4j-simd-worker                 archived-dead-code
+    9.6   Service         go1.24.5       2  -           async-indexer                     services
+    9.6   Transport       go1.25.0       0  -           protoc-gen-go                     snapshots
+    9.5   Service         go1.25.0       3  -           neo4j-integration-service         snapshots
+    9.5   Service         go1.24.5       1  -           gpu-indexer-service               archived-dead-code
+    9.4   Service         go1.24.5       0  -           recommendation-service            archived-dead-code
+    9.3   AI/RAG          go1.25.0       2  -           context7-rag-pipeline             services
+    9.2   Transport       go1.25.0       1  -           protoc-gen-go-grpc                snapshots
+    9.2   Service         go1.24.5       0  5abcbadd    load-balancer-new                 archived-dead-code
+    9.2   GPU/CUDA        go1.25.0       4  -           gpu-memory-manager                snapshots
+    9.1   Service         go1.25.0       3  -           legal-recommendation-engine       snapshots
+    9.1   Service         go1.24.5       2  -           modular-cluster-service           services
+    9.1   Service         go1.25.0       3  -           legal-recommendation-engine-fixed snapshots
+    9.0   Service         go1.25.0       2  bc18c1b1    test                              projects
+    9.0   Service         go1.25.0       3  -           legal-engine                      snapshots
+    9.0   Service         go1.25.0       0  -           load-balancer                     archived-dead-code
+    9.0   SIMD            go1.25.0       5  -           simd-json-accelerator             snapshots
+    8.9   Service         go1.25.0       1  -           agentic-gemma3-service            archived-dead-code
+    8.9   Transport       go1.25.0       4  -           legal-ai-grpc                     snapshots
+    8.8   GPU/CUDA        go1.25.0       3  c5be92cc    gpu-tensor-service                archived-dead-code
+    8.8   Networking      go1.25.0       0  c68e9fdf    simd-quic                         archived-dead-code
+    8.7   GPU/CUDA        go1.25.0       2  cb20ef4f    legal-ai-cuda                     snapshots
+    8.7   Networking      go1.25.0       2  -           tensorrt-bridge                   snapshots
+    8.5   GPU/CUDA        go1.24.5       0  -           agentic-cuda-parser               archived-dead-code
+    8.4   SIMD            go1.25.0       3  -           simd-http-server                  archived-dead-code
+    8.3   Networking      go1.24.5       0  -           quic-coordinator-simplified       snapshots
+    8.2   Service         go1.25.0       0  -           legal-tensorrt-service-simple     archived-dead-code
+    8.1   Observability   go1.24.5       0  -           mock-health                       snapshots
+    8.1   GPU/CUDA        go1.25.0       0  cb20ef4f    cuda-http-service                 infra
+    8.1   Service         go1.24.5       0  -           test-server                       services
+    8.0   Observability   go1.25.0       0  f3da0f1b    health-server                     snapshots
+    8.0   AI/RAG          go1.25.0       1  -           enhanced-rag-som                  services
+    7.6   Service         go1.25.0       3  755ba4ab    cache-smoketest                   services
+    5.6   Observability   go1.25.0       0  f3da0f1b    health-server-prod                snapshots
+    5.6   Observability   go1.25.0       0  f3da0f1b    health-server-service             snapshots
+    2.9   Service         go1.24.5       0  -           typescript-error-optimizer        archived-dead-code
+    2.7   Service         go1.25.0       0  -           cl                                projects
+    2.4   Networking      go1.25.0       0  c68e9fdf    quic-agent                        archived-dead-code
+    2.4   Service         go1.25.0       0  -           agentic-gemma3-main               archived-dead-code
+    2.0   Service         unknown        0  -           exe                               archived-dead-code
+    1.5   Service         unknown        0  -           redis-server                      snapshots
+    1.1   Service         unknown        0  -           ast_graph_exporter                snapshots
+    0.9   GPU/CUDA        unknown        0  -           cuda-worker                       infra
+    0.8   Service         unknown        0  -           WardenNet                         frontend
+    0.7   Service         unknown        0  -           test-proto                        services
+    0.6   GPU/CUDA        unknown        0  -           rag_lora_trainer                  infra
+    0.5   Service         unknown        0  -           code_quality_ranker               services
+    0.5   Service         unknown        0  -           redis-cli                         snapshots
+    0.4   Service         unknown        0  -           redis-benchmark                   snapshots
+    0.4   GPU/CUDA        unknown        0  -           cuda-worker-clang                 infra
+    0.4   GPU/CUDA        unknown        0  -           CompilerIdCUDA                    frontend
+    0.3   Service         unknown        0  -           exe_windows_64                    archived-dead-code
+    0.3   Service         unknown        0  -           redis-check-dump                  snapshots
+    0.2   Service         unknown        0  -           redis-check-aof                   snapshots
+    0.1   GPU/CUDA        unknown        0  -           profiling_dashboard               infra
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  GIT REVISION GROUPS (54 tracked builds, 14 unique revisions)              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  f6041b48  — 6 binaries (enhanced-rag-v2, enhanced-rag-cuda, cuda-service-enhanced,
+               upload-service-new, grpc-server-go124)
+  c5be92cc  — 5 binaries (recommendations-service, cuda-ai-service, production-rag,
+               simd-health, gpu-tensor-service)
+  5b4356b0  — 5 binaries (enhanced-rag-go125, cuda-ai-service-go125, upload-service-go125,
+               grpc-server-go125, vector-service-go125)
+  8d967770  — 4 binaries (rag-kratos, summarizer-service, test-build, rag-quic-proxy,
+               cluster-http)
+  f3da0f1b  — 4 binaries (gpu-orchestrator, gpu-orchestrator-prod, health-server,
+               health-server-prod, health-server-service)
+  8a31c41a  — 3 binaries (metrics-server, gpu-cluster-executor)
+  cb20ef4f  — 3 binaries (legal-ai-cuda, cuda-http-service)
+  1cbfa737  — 2 binaries (quic-nats-bridge, embedding-server)
+  c68e9fdf  — 2 binaries (simd-quic, quic-agent)
+  06c74ee8  — 2 binaries (collector, aggregator)
+  1118765f  — 2 binaries (webasm-gpu-middleware ×2)
+  2d54637b  — 2 binaries (cuda-ai-service-go124, cluster-service)
+  Other single-revision builds: a63833db, 8568f1a8, fa8464d5, f5ce9068,
+    82dc580d, 2ee0e742, ee2b900c, ee911a10, 519c6b70, 609b8d1f, bc18c1b1,
+    2888a167, 5abcbadd, 755ba4ab, 208f5399
+
+Note: 52/54 tracked builds have vcs.modified=true (dirty working tree).
+This indicates ad-hoc local compilation, not CI/CD pipeline builds.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  KEY FINDINGS & PATTERNS                                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. MONOREPO EVOLUTION
+   Module path: legal-ai-production → legal-ai-platform → microservice
+   189 cmd/ directories in original Go monorepo, 160 compiled binaries remain
+   Go versions span go1.21.5 → go1.25.0 (6+ months of development)
+
+2. ITERATIVE REBUILD PATTERN
+   Many binaries exist in 2-3 versions across go1.24.5 and go1.25.0:
+   - cuda-ai-service / cuda-ai-service-go124 / cuda-ai-service-go125
+   - vector-service / vector-service-go124 / vector-service-go125
+   - enhanced-rag / enhanced-rag-go125 / enhanced-rag-v2
+   - upload-service / upload-service-new / upload-service-go125
+   - grpc-server / grpc-server-go124 / grpc-server-go125
+   Each rebuild adds ~0-5 MB (new deps or linker optimization)
+
+3. GIN FRAMEWORK DOMINANCE
+   64/141 Go binaries use gin-gonic/gin → every HTTP service was Gin-based
+   SvelteKit equivalent: +server.ts routes with native Request/Response
+
+4. DUAL REDIS CLIENT SPLIT
+   31 binaries use go-redis/v9, 30 use go-redis/v8 — migration was incomplete
+   SvelteKit equivalent: single ioredis v5 client
+
+5. DIRTY BUILD EPIDEMIC
+   52/54 git-tracked builds have vcs.modified=true → never built from clean tree
+   Indicates ad-hoc local compilation, not CI/CD pipeline
+
+6. CGO EVERYWHERE
+   136/141 (96%) compiled with CGO_ENABLED=1
+   Likely needed for: SQLite, GPU libs, system calls
+   SvelteKit equivalent: N-API addon for CUDA/LibTorch only
+
+7. SCATTERED ACROSS 5 DIRECTORIES
+   Same logical services duplicated in archived-dead-code, services, and snapshots
+   No clear canonical version — archived ≈ services ≈ snapshots in freshness
+
+8. NON-GO ARTIFACTS MIXED IN
+   Qdrant (Rust), Redis (C), MSYS2 installer, protoc (C++), CMake CUDA outputs
+   These are infrastructure tools, not custom code — all replaceable from package managers
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  DELETION RECOMMENDATION                                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ALL 160 binaries (2,575 MB) are safe to delete:
+
+- 141 Go binaries: All superseded by SvelteKit platform
+- 19 non-Go binaries: All are either:
+  - Infrastructure tools installable from package managers (qdrant, redis, protoc)
+  - Build artifacts (CMake CUDA compiler ID, debug builds)
+  - Test fixtures (mimetype/pprof test data)
+  - Installer archives (MSYS2)
+
+Source code (Go .go files) is preserved in the archived directories.
+Only compiled .exe outputs would be deleted.
+Go source can be recompiled at any time with `go build ./cmd/...`
+
+================================================================================
+ END OF AUDIT
+================================================================================
+

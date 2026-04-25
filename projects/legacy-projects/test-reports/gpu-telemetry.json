@@ -1,0 +1,14 @@
+{
+  "timestamp": "2025-11-09T02:42:53.374Z",
+  "torch": null,
+  "nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 3060 Ti",
+      "utilization_pct": 3,
+      "temperature_C": 50,
+      "memory_total_MB": 8192,
+      "memory_used_MB": 3173,
+      "memory_free_MB": 4852
+    }
+  ]
+}

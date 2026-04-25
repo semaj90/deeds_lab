@@ -1,0 +1,17 @@
+WARNING:root:MinIO client not available, storage disabled
+INFO:python_codebase.document_processing.granite_docling_parser:Loading granite-docling-258m model...
+INFO:python_codebase.document_processing.granite_docling_parser:Loaded granite-docling-258m model successfully
+INFO:src.pipeline.unified_pipeline_manager:\u2705 GPU processor initialized (Granite-Docling)
+INFO:python_codebase.document_processing.tesseract_fallback:Tesseract available for fallback OCR
+INFO:src.pipeline.unified_pipeline_manager:\u2705 CPU processor initialized (Tesseract)
+INFO:__main__:\u2705 LangExtract chunking enabled
+INFO:__main__:\u2705 Phase 79 RAG/KAG middleware enabled
+INFO:__main__:\u2705 SSE event streaming enabled
+INFO:__main__:\U0001f4c4 Processing document: ..\complaint.pdf (ID: complaint_test_005)
+INFO:__main__:\U0001f50d Stage 1: Classification + GPU/CPU Processing
+INFO:src.pipeline.unified_pipeline_manager:\U0001f4c4 Processing document: ..\complaint.pdf
+INFO:src.pipeline.unified_pipeline_manager:\U0001f50d Classifying 3 pages...
+INFO:src.pipeline.unified_pipeline_manager:Page 1/3: table (confidence: 90.00%)
+INFO:python_codebase.document_processing.granite_docling_parser:Input keys: ['pixel_values', 'pixel_attention_mask', 'rows', 'cols']
+INFO:python_codebase.document_processing.granite_docling_parser:Pixel values shape: torch.Size([1, 17, 3, 512, 512])
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.

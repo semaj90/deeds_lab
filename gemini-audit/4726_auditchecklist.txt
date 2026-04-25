@@ -1,0 +1,1221 @@
+Complete 10-Layer Import Audit Checklist
+Here's what the standard 3-layer grep catches vs what it misses:
+
+Covered by Standard Audit (L1-L3)
+Layer	Pattern	Example
+L1	Static ESM	from '$lib/components/Foo.svelte'
+L2	Dynamic ESM	await import('$lib/components/Foo.svelte')
+L3	CJS require	require('$lib/server/proto')
+4 Additional Layers That Can Cause False Orphans
+Layer	Pattern	Risk	Files	Detection Command
+L4	Variable dynamic imports (@vite-ignore)	CRITICAL	4 files	rg "@vite-ignore" src/ or rg "import\([^'\"]" src/
+L8	Dead barrel re-exports	MODERATE	24 index.ts barrels	Check if barrel itself is imported, not just contents
+L9	Event coupling (CustomEvent, addEventListener)	HIGH	88 files (192 events)	rg "CustomEvent|addEventListener" src/ + grep event names
+L5	SvelteKit auto-discovery (+page.svelte etc.)	LOW	692 route files	Don't flag route files as orphans
+Key Findings
+L4 — Variable-based dynamic imports (invisible to literal grep):
+
+lib/server/db/drizzle.ts — const cachePath = '$lib/server/cache/redis'; await import(cachePath)
+lib/server/analysis/granite-docling.ts — PDF rendering
+lib/server/json/fastjson.ts — JSON parser
+lib/components/yorha/_simulations/CanvasBoard.svelte — simulation engine
+L9 — Event coupling (the AnalysisPanel pattern):
+
+AnalysisPanel.svelte has 0 static imports in any .svelte file but is triggered via yorha:open-analysis event from root layout
+27 files use window.addEventListener for global event channels
+L8 — Barrel exports hiding dead code:
+
+shells/index.ts re-exports 3 components but the barrel itself has 0 consumers — entire chain is dead
+Always check if the barrel itself is imported, not just its contents
+Updated Audit Protocol (10-layer)
+
+# L1-L3: Standard (already in CLAUDE.md)
+rg "from.*MODULE" src/
+rg "import\(.*MODULE" src/
+rg "require\(.*MODULE" src/
+
+# L4: Variable dynamic imports (NEW — catches @vite-ignore)
+rg "@vite-ignore" src/
+rg "import\([^'\"]" src/ --type ts --type svelte
+
+# L8: Barrel audit (NEW — dead re-export chains)
+# For each index.ts barrel: check if BARREL is imported
+rg "from.*components/shells'" src/  # not just individual files
+
+# L9: Event coupling (NEW — catches AnalysisPanel pattern)
+rg "CustomEvent.*MODULE\|addEventListener.*MODULE" src/
+rg "yorha:" src/  # known event namespace
+L5 (SvelteKit router), L6 (config safelists), L7 ({@html}), L10 (store subscriptions) are low/minimal risk and don't cause false orphan detections in practice.
+
+Want me to save this as a memory file for future audits?
+
+yes create a subagent? claude skill? 
+Import Audit Checklist — How to Find Everything
+The notes/ directory was empty, but the AnalysisPanel.svelte case demonstrates the core problem: static grep -r "from.*MODULE" misses dynamic imports. Here's the full checklist we use (from CLAUDE.md):
+
+3-Layer Import Search
+
+# Layer 1: Static imports (ESM `from` syntax)
+rg "from.*AnalysisPanel" src/
+
+# Layer 2: Dynamic imports (await import())  
+rg "import\(.*AnalysisPanel" src/
+
+# Layer 3: CJS require (rare — proto, OCR, astVectorizer)
+rg "require\(.*AnalysisPanel" src/
+Why Static Grep Fails
+In this codebase, 115 files use await import() for lazy loading. Key hotspots:
+
+File	Dynamic Imports	Why
+(app)/+layout.svelte	~5	AnalysisPanel, KeyboardShortcuts, lazy UI
+mcp/server.ts	12	All tool handlers lazy-loaded
+hooks.server.ts	3	Boot tasks
+API routes (src/routes/api/)	80+	Service imports on first request
+The AnalysisPanel case: static grep found 1 consumer (cases/[id]/+page.svelte), but the root layout dynamic import on line 42 is the primary trigger (Ctrl+Shift+G on every page).
+
+Full AST-Level Audit (for comprehensive orphan detection)
+For a bulletproof check beyond regex, you'd parse the AST:
+
+
+# Quick: Find ALL import statements (static + dynamic) mentioning a component
+rg "(from|import\().*ComponentName" src/ --type svelte --type ts
+
+# Medium: Find all dynamic imports across codebase
+rg "import\(" src/ --type ts --type svelte -c
+# → Shows file:count of dynamic imports per file
+
+# Thorough: Find orphan candidates (files with 0 consumers)
+# For each .svelte file in src/lib/components/:
+#   1. Extract basename without extension
+#   2. rg "BASENAME" src/ --type ts --type svelte
+#   3. If 0 hits → orphan candidate
+What We Had vs What We Missed
+Component	Static grep	Dynamic grep	Actual status
+AnalysisPanel.svelte	1 (cases/[id])	1 (+layout.svelte:42)	WIRED — G6 PASS
+KeyboardShortcutsPanel.svelte	0	2 (layout dynamic)	WIRED (dynamic only)
+LegalAnalysisDialog.svelte	1	3	WIRED
+AIChatAssistant.svelte	0	0	Correctly archived
+ChatMessages.svelte	0	0	Correctly archived
+The audit agent checked both layers for all 55 root components, which is why it correctly identified KeyboardShortcutsPanel as wired (dynamic-only) and AnalysisPanel was caught by the archival agent before it was moved.
+
+Want me to continue with anything else from the component audit, or move on to other work?
+Show more
+I'll save the 10-layer audit checklist to memory and create it as a reusable skill.
+
+
+Update Todos
+Deep audit: find all import patterns beyond static/dynamic/require
+
+Check for lazy component patterns, conditional renders, string-based lookups
+
+Verify no orphan components missed by standard grep
+
+Update audit checklist with any new patterns found
+Task:Find non-standard import patterns
+IN
+Very thorough research task in c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\
+
+Beyond the standard 3-layer import search (static `from`, dynamic `import()`, CJS `require()`), find ALL other patterns that could wire a file as a dependency. Search for:
+
+1. **String-based dynamic imports** — `import(variable)` or `import(\`template\`)` where the module path is constructed at runtime:
+   ```
+   rg "import\(\s*[`$\"]" src/ --type ts --type svelte
+   ```
+
+2. **glob/Vite glob imports** — `import.meta.glob()` pattern:
+   ```
+   rg "import\.meta\.glob" src/
+   ```
+
+3. **Svelte component variables** — Components assigned to variables then rendered dynamically:
+   ```
+   rg "svelte:component" src/ --type svelte
+   ```
+   Also check for Svelte 5 dynamic component rendering (components as values without `<svelte:component>`).
+
+4. **Re-export barrels** — `export * from` or `export { X } from` patterns that re-export from other modules:
+   ```
+   rg "export \* from|export \{.*\} from" src/lib/
+   ```
+
+5. **Config/registry patterns** — Objects mapping string keys to component/module paths:
+   ```
+   rg "component:|lazy:|loadComponent|componentMap|registry" src/
+   ```
+
+6. **URL-based references** — fetch() calls that reference internal API routes (these wire server endpoints as dependencies):
+   ```
+   rg "fetch\(['\`\"]\/api\/" src/ --type svelte
+   ```
+   Count unique API paths referenced.
+
+7. **SvelteKit load functions** — `data.` patterns in +page.svelte that depend on +page.server.ts or +page.ts exports:
+   ```
+   rg "export const load" src/routes/
+   ```
+
+8. **Event-based wiring** — CustomEvent dispatchers that indirectly connect components:
+   ```
+   rg "CustomEvent|dispatchEvent|addEventListener" src/ --type svelte --type ts
+   ```
+
+9. **Vite define/alias** — Check vite.config.ts for path aliases that could hide imports.
+
+For each pattern found, report:
+- How many occurrences
+- Which files use it
+- Whether this pattern could hide dependencies from standard grep
+- Risk level if missed during an orphan audit
+
+This is a research task — don't modify files.
+Task:Find fetch-based API route consumers
+IN
+Research task in c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\
+
+The audit checklist currently checks file imports but NOT fetch()-based API route wiring. A +server.ts file could have 0 file imports but be wired via fetch() from client components.
+
+1. Find all unique API routes that are consumed via fetch() in client-side code:
+   ```
+   rg "fetch\(['\`\"/].*?/api/" src/routes/ src/lib/ --type svelte --type ts -o
+   ```
+
+2. Find all +server.ts files that define API handlers:
+   ```
+   find src/routes/api/ -name "+server.ts"
+   ```
+   Count total.
+
+3. Cross-reference: find API routes that have a +server.ts but are NEVER referenced by any fetch() call. These are "orphan API routes" — server endpoints with no client consumers.
+
+4. Also check for server-side internal fetch() calls (one API route calling another):
+   ```
+   rg "fetch\(.*localhost|fetch\(.*127\.0\.0\.1|fetch\(.*api/" src/routes/api/ src/lib/server/
+   ```
+
+Report:
+- Total +server.ts files
+- Total unique fetch('/api/...') calls from client code
+- Orphan API routes (have handler but no fetch consumer)
+- Internal API-to-API calls
+
+Don't modify files.
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app && find sveltekit-frontend -name "vite.config.ts" -o -name "vite.config.js" | head -5
+
+OUT
+sveltekit-frontend/node_modules/vite-plugin-node-polyfills/shims/vite.config.ts
+sveltekit-frontend/vite.config.ts
+Read c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\vite.config.ts
+Bash
+IN
+find "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api" -name "+server.ts" | wc -l
+
+OUT
+414
+Bash
+IN
+grep -r "fetch(" "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api" --include="*.ts" | grep -E "(localhost|127\.0\.0\.1|/api/)" | head -100
+
+OUT
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ai/models/+server.ts:		const res = await fetch(`${ollamaUrl}/api/tags`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ai/stats/+server.ts:		const res = await fetch(`${ollamaUrl}/api/tags`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ai/tensorrt/+server.ts:				const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ai/tensorrt/stream/+server.ts:			const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ai/tensorrt/vlm/+server.ts:      const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/cases/[id]/similar/+server.ts:	fetch('/api/graph/sync', {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/clusters/+server.ts:			const backendResponse = await fetch(`${FASTAPI_URL}/api/codebase/clusters?limit=${limit}`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/reindex/+server.ts:		const response = await fetch(`${FASTAPI_URL}/api/codebase/reindex`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/reindex/+server.ts:					const clusterResponse = await fetch(`${FASTAPI_URL}/api/codebase/cluster`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/route-components/+server.ts:	// fetch('/api/...') or fetch(`/api/...`)
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/search/+server.ts:      const response = await fetch(`${backendUrl}/api/codebase/search?${searchParams}`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/codebase-index/stats/+server.ts:			const backendResponse = await fetch(`${FASTAPI_URL}/api/codebase/stats`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/error-brain/diagnose/+server.ts:		const res = await fetch(new URL('/api/codebase-index/graph?maxFiles=300', origin), {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/evidence/analyze/+server.ts:	return fetch(`/api/evidence/analysis${url.search}`);
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/evidence/analyze/+server.ts:	return fetch('/api/evidence/analysis', {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/health/capabilities/+server.ts:    fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(TIMEOUT) })
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/health/ollama/+server.ts:			const response = await fetch(`${ollamaUrl}/api/tags`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/indexing/+server.ts:    const response = await fetch(`${CONFIG.ollama.url}/api/embeddings`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/infrastructure/status/+server.ts:        const res = await fetch(`${getRabbitMQManagementUrl()}/api/overview`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/knowledge/search/+server.ts:      fetch('/api/glossary/search', {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/knowledge/search/+server.ts:      fetch('/api/statutes/search', {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/knowledge/search/+server.ts:      fetch('/api/precedents/search', {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/ollama/pull/+server.ts: const res = await fetch(`${OLLAMA_BASE}/api/pull`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/orchestrator/analyze/+server.ts:		const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/agentic/tasks`, {
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/rag/enhanced/+server.ts:      fetch(`${RAG_SERVICE_URL}/api/v1/rag/stats`, { signal: AbortSignal.timeout(10_000) }),
+c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\routes\api/system/services/+server.ts:      const resp = await fetch(`${getOllamaUrl()}/api/tags`, { signal: AbortSignal.timeout(5000) });
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app/sveltekit-frontend && grep -r "component:|lazy:|loadComponent|componentMap|registry" src --type ts --type svelte | head -20
+
+OUT
+grep: unknown option -- type
+Usage: grep [OPTION]... PATTERN [FILE]...
+Try 'grep --help' for more information.
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && find src/routes -name "+server.ts" | sort
+
+OUT
+src/routes/(app)/admin/api-testing/agentic-events/+server.ts
+src/routes/(app)/admin/api-testing/agentic-loop/+server.ts
+src/routes/(app)/admin/api-testing/ast-topology/+server.ts
+src/routes/(app)/evidence/+server.ts
+src/routes/.well-known/appspecific/com.chrome.devtools.json/+server.ts
+src/routes/api/ace/ingest/+server.ts
+src/routes/api/ace/status/+server.ts
+src/routes/api/ace/summarize/+server.ts
+src/routes/api/acp/execute/+server.ts
+src/routes/api/acp/tools/+server.ts
+src/routes/api/admin/agent/fix/+server.ts
+src/routes/api/admin/audit/+server.ts
+src/routes/api/admin/inference-stats/+server.ts
+src/routes/api/admin/knowledge/+server.ts
+src/routes/api/admin/qlora/+server.ts
+src/routes/api/admin/routes/+server.ts
+src/routes/api/admin/routes/stream/+server.ts
+src/routes/api/admin/seed-knowledge/+server.ts
+src/routes/api/agent/investigate/+server.ts
+src/routes/api/agents/chat/+server.ts
+src/routes/api/ai/analyze/[scope]/+server.ts
+src/routes/api/ai/analyze-evidence/+server.ts
+src/routes/api/ai/ask/+server.ts
+src/routes/api/ai/case-prediction/+server.ts
+src/routes/api/ai/case-scoring/+server.ts
+src/routes/api/ai/chat/+server.ts
+src/routes/api/ai/chat/stream/+server.ts
+src/routes/api/ai/context/+server.ts
+src/routes/api/ai/contextual-chat/+server.ts
+src/routes/api/ai/cross-exam/+server.ts
+src/routes/api/ai/feedback/+server.ts
+src/routes/api/ai/generate-image/+server.ts
+src/routes/api/ai/generate-report/[scope]/+server.ts
+src/routes/api/ai/judge/+server.ts
+src/routes/api/ai/legal-research/+server.ts
+src/routes/api/ai/memo-skeleton/+server.ts
+src/routes/api/ai/models/+server.ts
+src/routes/api/ai/personas/+server.ts
+src/routes/api/ai/route-intent/+server.ts
+src/routes/api/ai/stats/+server.ts
+src/routes/api/ai/suggestions/+server.ts
+src/routes/api/ai/summarize/+server.ts
+src/routes/api/ai/tensorrt/+server.ts
+src/routes/api/ai/tensorrt/stream/+server.ts
+src/routes/api/ai/tensorrt/vlm/+server.ts
+src/routes/api/ai/vector-search/+server.ts
+src/routes/api/ai/yorha/context-chat/+server.ts
+src/routes/api/analysis/page-context/+server.ts
+src/routes/api/analytics/events/+server.ts
+src/routes/api/analytics/patterns/+server.ts
+src/routes/api/analytics/search/+server.ts
+src/routes/api/analytics/similar-queries/+server.ts
+src/routes/api/analytics/summary/+server.ts
+src/routes/api/analytics/token-usage/+server.ts
+src/routes/api/analyze-file/+server.ts
+src/routes/api/analyze-tag/+server.ts
+src/routes/api/auth/debug/+server.ts
+src/routes/api/auth/demo-login/+server.ts
+src/routes/api/auth/health/+server.ts
+src/routes/api/auth/login/+server.ts
+src/routes/api/auth/logout/+server.ts
+src/routes/api/auth/me/+server.ts
+src/routes/api/auth/profile/+server.ts
+src/routes/api/auth/register/+server.ts
+src/routes/api/auth/reset-password/+server.ts
+src/routes/api/auth/session/+server.ts
+src/routes/api/cache/+server.ts
+src/routes/api/cache/invalidate/+server.ts
+src/routes/api/cache/llm/clean/+server.ts
+src/routes/api/cache/llm/stats/+server.ts
+src/routes/api/cache/metrics/+server.ts
+src/routes/api/cache/nintendo/+server.ts
+src/routes/api/cache/recent-queries/+server.ts
+src/routes/api/cache/set/+server.ts
+src/routes/api/cache/stats/+server.ts
+src/routes/api/canon/+server.ts
+src/routes/api/canon/chunks/[chunkId]/+server.ts
+src/routes/api/canon/ingest/+server.ts
+src/routes/api/canon/search/+server.ts
+src/routes/api/cartridge/export/+server.ts
+src/routes/api/cartridge/invalidate/+server.ts
+src/routes/api/cartridge/search/+server.ts
+src/routes/api/cartridge/stats/+server.ts
+src/routes/api/cases/[id]/+server.ts
+src/routes/api/cases/[id]/analyze/stream/+server.ts
+src/routes/api/cases/[id]/authorities/+server.ts
+src/routes/api/cases/[id]/canvas/+server.ts
+src/routes/api/cases/[id]/chat/+server.ts
+src/routes/api/cases/[id]/citations/+server.ts
+src/routes/api/cases/[id]/connections/+server.ts
+src/routes/api/cases/[id]/evidence/+server.ts
+src/routes/api/cases/[id]/export/pdf/+server.ts
+src/routes/api/cases/[id]/key-points/+server.ts
+src/routes/api/cases/[id]/laws/+server.ts
+src/routes/api/cases/[id]/notes/[noteId]/+server.ts
+src/routes/api/cases/[id]/notes/[noteId]/evidence/+server.ts
+src/routes/api/cases/[id]/notes/[noteId]/versions/+server.ts
+src/routes/api/cases/[id]/notes/+server.ts
+src/routes/api/cases/[id]/notes/search/+server.ts
+src/routes/api/cases/[id]/overview/+server.ts
+src/routes/api/cases/[id]/persons/+server.ts
+src/routes/api/cases/[id]/reasoning-chain/+server.ts
+src/routes/api/cases/[id]/similar/+server.ts
+src/routes/api/cases/[id]/timeline/+server.ts
+src/routes/api/cases/+server.ts
+src/routes/api/cases/analytics/+server.ts
+src/routes/api/cases/cluster/+server.ts
+src/routes/api/case-theory/+server.ts
+src/routes/api/charges/add/+server.ts
+src/routes/api/chat/+server.ts
+src/routes/api/chat/migrate/+server.ts
+src/routes/api/chat/replay/+server.ts
+src/routes/api/chat/stream/+server.ts
+src/routes/api/chrrom/events/+server.ts
+src/routes/api/chrrom/precompute/+server.ts
+src/routes/api/chrrom/push/+server.ts
+src/routes/api/citations/[citationId]/tags/+server.ts
+src/routes/api/citations/+server.ts
+src/routes/api/citations/collections/[collectionId]/+server.ts
+src/routes/api/citations/collections/[collectionId]/citations/+server.ts
+src/routes/api/citations/collections/[collectionId]/export/+server.ts
+src/routes/api/citations/collections/+server.ts
+src/routes/api/citations/export/json/+server.ts
+src/routes/api/citations/export/pdf/+server.ts
+src/routes/api/citations/saved/+server.ts
+src/routes/api/citations/search/+server.ts
+src/routes/api/codebase/apply-patch/+server.ts
+src/routes/api/codebase/index/+server.ts
+src/routes/api/codebase/recall/+server.ts
+src/routes/api/codebase/rerank/+server.ts
+src/routes/api/codebase-index/+server.ts
+src/routes/api/codebase-index/analyze/+server.ts
+src/routes/api/codebase-index/clusters/+server.ts
+src/routes/api/codebase-index/error-filters/+server.ts
+src/routes/api/codebase-index/errors/+server.ts
+src/routes/api/codebase-index/graph/+server.ts
+src/routes/api/codebase-index/reindex/+server.ts
+src/routes/api/codebase-index/related/+server.ts
+src/routes/api/codebase-index/route-components/+server.ts
+src/routes/api/codebase-index/search/+server.ts
+src/routes/api/codebase-index/stats/+server.ts
+src/routes/api/consolidation/status/+server.ts
+src/routes/api/contextual/chat/+server.ts
+src/routes/api/contextual/predictions/+server.ts
+src/routes/api/contextual/state/+server.ts
+src/routes/api/contextual/stats/+server.ts
+src/routes/api/conversations/[id]/+server.ts
+src/routes/api/dashboard/stats/+server.ts
+src/routes/api/db/health/+server.ts
+src/routes/api/detective/analyze/+server.ts
+src/routes/api/detective/connections/+server.ts
+src/routes/api/docs/+server.ts
+src/routes/api/document/[docId]/+server.ts
+src/routes/api/documents/[id]/+server.ts
+src/routes/api/documents/[id]/auto-save/+server.ts
+src/routes/api/embed/+server.ts
+src/routes/api/engagement/heartbeat/+server.ts
+src/routes/api/engagement/scan/+server.ts
+src/routes/api/error-brain/apply-fix/+server.ts
+src/routes/api/error-brain/auto-patch/+server.ts
+src/routes/api/error-brain/diagnose/+server.ts
+src/routes/api/error-brain/diagnosis-history/+server.ts
+src/routes/api/error-brain/diagnosis-history/backfill/+server.ts
+src/routes/api/error-brain/diagnosis-history/similar/+server.ts
+src/routes/api/error-brain/generate-fix/+server.ts
+src/routes/api/error-brain/history/[filePath]/+server.ts
+src/routes/api/error-brain/search/+server.ts
+src/routes/api/error-brain/verify-fix/+server.ts
+src/routes/api/errors/client-report/+server.ts
+src/routes/api/errors/route-errors/+server.ts
+src/routes/api/errors/summary/+server.ts
+src/routes/api/evidence/[docId]/status/+server.ts
+src/routes/api/evidence/[id]/+server.ts
+src/routes/api/evidence/[id]/approve/+server.ts
+src/routes/api/evidence/[id]/audit/+server.ts
+src/routes/api/evidence/[id]/chain-of-custody/+server.ts
+src/routes/api/evidence/[id]/download/+server.ts
+src/routes/api/evidence/[id]/gpu-analysis/+server.ts
+src/routes/api/evidence/[id]/key-points/+server.ts
+src/routes/api/evidence/[id]/report/+server.ts
+src/routes/api/evidence/[id]/suggest-summary/+server.ts
+src/routes/api/evidence/[id]/versions/+server.ts
+src/routes/api/evidence/+server.ts
+src/routes/api/evidence/ai/analyze/+server.ts
+src/routes/api/evidence/ai/magnetize/+server.ts
+src/routes/api/evidence/analysis/+server.ts
+src/routes/api/evidence/analysis/cache/+server.ts
+src/routes/api/evidence/analyze/+server.ts
+src/routes/api/evidence/connections/+server.ts
+src/routes/api/evidence/entities/+server.ts
+src/routes/api/evidence/extract-docling/+server.ts
+src/routes/api/evidence/realtime/+server.ts
+src/routes/api/evidence/relationships/+server.ts
+src/routes/api/evidence/search/+server.ts
+src/routes/api/evidence/summary/[id]/approve/+server.ts
+src/routes/api/evidence/upload/+server.ts
+src/routes/api/feedback/+server.ts
+src/routes/api/fictional-cases/[id]/+server.ts
+src/routes/api/fictional-cases/+server.ts
+src/routes/api/generate-cluster-summaries/+server.ts
+src/routes/api/glossary/+server.ts
+src/routes/api/glossary/search/+server.ts
+src/routes/api/glossary/terms/+server.ts
+src/routes/api/glyph/generate/+server.ts
+src/routes/api/gpu/compute/+server.ts
+src/routes/api/gpu/lease/+server.ts
+src/routes/api/gpu/queue/+server.ts
+src/routes/api/gpu-wasm-integration/+server.ts
+src/routes/api/graph/connections/+server.ts
+src/routes/api/graph/recommendations/+server.ts
+src/routes/api/graph/relationships/+server.ts
+src/routes/api/graph/sync/+server.ts
+src/routes/api/graph/timeline/+server.ts
+src/routes/api/health/+server.ts
+src/routes/api/health/capabilities/+server.ts
+src/routes/api/health/circuit-breakers/+server.ts
+src/routes/api/health/database/+server.ts
+src/routes/api/health/gpu/+server.ts
+src/routes/api/health/neo4j/+server.ts
+src/routes/api/health/ocr/+server.ts
+src/routes/api/health/ollama/+server.ts
+src/routes/api/health/qdrant/+server.ts
+src/routes/api/health/ready/+server.ts
+src/routes/api/health/redis/+server.ts
+src/routes/api/health/redis-pool/+server.ts
+src/routes/api/health/services/+server.ts
+src/routes/api/health/status/+server.ts
+src/routes/api/health/system/+server.ts
+src/routes/api/indexing/+server.ts
+src/routes/api/infrastructure/status/+server.ts
+src/routes/api/ingest/+server.ts
+src/routes/api/ingest-constitution/+server.ts
+src/routes/api/internal/error-brain/runs/+server.ts
+src/routes/api/internal/error-brain/status/+server.ts
+src/routes/api/investigate/suggest/+server.ts
+src/routes/api/kb/validate/+server.ts
+src/routes/api/knowledge/+server.ts
+src/routes/api/knowledge/document/[id]/+server.ts
+src/routes/api/knowledge/search/+server.ts
+src/routes/api/knowledge/stats/+server.ts
+src/routes/api/knowledge/stream/+server.ts
+src/routes/api/library/citations/[citation]/+server.ts
+src/routes/api/library/citations/+server.ts
+src/routes/api/library/corpus/constitutions/+server.ts
+src/routes/api/library/document/[id]/+server.ts
+src/routes/api/library/document/[id]/node/[nodeId]/+server.ts
+src/routes/api/library/document/[id]/toc/+server.ts
+src/routes/api/library/documents/[documentId]/+server.ts
+src/routes/api/library/documents/[documentId]/chunks/+server.ts
+src/routes/api/library/documents/[documentId]/pdf/+server.ts
+src/routes/api/library/documents/[documentId]/summary/+server.ts
+src/routes/api/library/documents/[documentId]/toc/+server.ts
+src/routes/api/library/documents/+server.ts
+src/routes/api/library/ingest/[jobId]/+server.ts
+src/routes/api/library/resolve-citation/+server.ts
+src/routes/api/library/search/+server.ts
+src/routes/api/library/upload/+server.ts
+src/routes/api/metrics/+server.ts
+src/routes/api/ml/cluster-status/+server.ts
+src/routes/api/nlp/classify/+server.ts
+src/routes/api/nlp/sentiment/+server.ts
+src/routes/api/observability/inference-stats/+server.ts
+src/routes/api/ollama/generate/+server.ts
+src/routes/api/ollama/pull/+server.ts
+src/routes/api/onboarding/+server.ts
+src/routes/api/orchestrator/analyze/+server.ts
+src/routes/api/persons/+server.ts
+src/routes/api/persons-of-interest/[id]/+server.ts
+src/routes/api/persons-of-interest/[id]/associates/[associateId]/+server.ts
+src/routes/api/persons-of-interest/[id]/associates/+server.ts
+src/routes/api/persons-of-interest/[id]/face-match/+server.ts
+src/routes/api/persons-of-interest/[id]/gpu-analyze/+server.ts
+src/routes/api/persons-of-interest/[id]/photos/+server.ts
+src/routes/api/persons-of-interest/[id]/risk/+server.ts
+src/routes/api/persons-of-interest/[id]/similar/+server.ts
+src/routes/api/persons-of-interest/[id]/summary/+server.ts
+src/routes/api/persons-of-interest/[id]/timeline/+server.ts
+src/routes/api/persons-of-interest/+server.ts
+src/routes/api/persons-of-interest/relationships/+server.ts
+src/routes/api/persons-of-interest/search/+server.ts
+src/routes/api/pgai/analyze/+server.ts
+src/routes/api/pgai/compare/+server.ts
+src/routes/api/pgai/summarize/+server.ts
+src/routes/api/phase72/errors/+server.ts
+src/routes/api/phase72/similar/+server.ts
+src/routes/api/phase72/suggest-fix/+server.ts
+src/routes/api/phase78/monitor/+server.ts
+src/routes/api/phase78/playwright-check/+server.ts
+src/routes/api/phase78/route-health/+server.ts
+src/routes/api/phase78/suggestion-state/+server.ts
+src/routes/api/phase82/status/+server.ts
+src/routes/api/phase82/upgrade-route/+server.ts
+src/routes/api/phase89/activity/+server.ts
+src/routes/api/phase89/agentic-fix/+server.ts
+src/routes/api/phase89/analysis/+server.ts
+src/routes/api/phase89/analyze/+server.ts
+src/routes/api/phase89/clusters/+server.ts
+src/routes/api/phase89/components/+server.ts
+src/routes/api/phase89/config/+server.ts
+src/routes/api/phase89/execute-command/+server.ts
+src/routes/api/phase89/fix/+server.ts
+src/routes/api/phase89/graph/+server.ts
+src/routes/api/phase89/graph/expand/+server.ts
+src/routes/api/phase89/graph/top-errors/+server.ts
+src/routes/api/phase89/node/[id]/docs/+server.ts
+src/routes/api/phase89/node/[id]/similar/+server.ts
+src/routes/api/phase89/pipeline/+server.ts
+src/routes/api/phase89/related/[id]/+server.ts
+src/routes/api/phase89/search/+server.ts
+src/routes/api/phase89/similar-clusters/+server.ts
+src/routes/api/phase89/stats/+server.ts
+src/routes/api/phase89/status/+server.ts
+src/routes/api/phase89/stream/+server.ts
+src/routes/api/phase89/topology/+server.ts
+src/routes/api/phase89/vector-search/+server.ts
+src/routes/api/ping/+server.ts
+src/routes/api/pipeline/run/+server.ts
+src/routes/api/pipeline/status/[jobId]/+server.ts
+src/routes/api/playwright/run-health-check/+server.ts
+src/routes/api/precedents/+server.ts
+src/routes/api/precedents/search/+server.ts
+src/routes/api/push/+server.ts
+src/routes/api/push/send/+server.ts
+src/routes/api/qlora/generate/+server.ts
+src/routes/api/rabbitmq/publish/+server.ts
+src/routes/api/rag/answer/+server.ts
+src/routes/api/rag/documents/+server.ts
+src/routes/api/rag/enhanced/+server.ts
+src/routes/api/rag/process/+server.ts
+src/routes/api/rag/search/+server.ts
+src/routes/api/rag/unified/+server.ts
+src/routes/api/rag/validate/+server.ts
+src/routes/api/recommendations/[userId]/+server.ts
+src/routes/api/recommendations/+server.ts
+src/routes/api/recommendations/jobs/[jobId]/+server.ts
+src/routes/api/recommendations/metrics/+server.ts
+src/routes/api/recommendations/track/+server.ts
+src/routes/api/reports/[id]/export/+server.ts
+src/routes/api/reports/[id]/publish/+server.ts
+src/routes/api/reports/+server.ts
+src/routes/api/reports/generate/+server.ts
+src/routes/api/reports/generate-from-template/+server.ts
+src/routes/api/reports/police/+server.ts
+src/routes/api/reports/preview/[id]/+server.ts
+src/routes/api/reports/save/+server.ts
+src/routes/api/route-operations/log/+server.ts
+src/routes/api/routes/[routeId]/error-brain-analyses/+server.ts
+src/routes/api/routes/[routeId]/error-brain-analysis/+server.ts
+src/routes/api/routes/[routeId]/error-brain-patch/[patchId]/+server.ts
+src/routes/api/routes/[routeId]/error-brain-patch/+server.ts
+src/routes/api/routes/[routeId]/errors/+server.ts
+src/routes/api/routes/[routeId]/health-event/+server.ts
+src/routes/api/routes/[routeId]/interactions/+server.ts
+src/routes/api/routes/events/+server.ts
+src/routes/api/routes/metadata/+server.ts
+src/routes/api/search/+server.ts
+src/routes/api/search/cases/+server.ts
+src/routes/api/search/citations/+server.ts
+src/routes/api/search/filters/+server.ts
+src/routes/api/search/laws/+server.ts
+src/routes/api/search/suggestions/+server.ts
+src/routes/api/security/validate/progress/+server.ts
+src/routes/api/simulation/[sessionId]/+server.ts
+src/routes/api/simulation/[sessionId]/strategy/+server.ts
+src/routes/api/simulation/+server.ts
+src/routes/api/sse/[id]/+server.ts
+src/routes/api/sse/chat/+server.ts
+src/routes/api/statutes/[id]/+server.ts
+src/routes/api/statutes/[id]/summary/+server.ts
+src/routes/api/statutes/+server.ts
+src/routes/api/statutes/search/+server.ts
+src/routes/api/stream/[chatId]/+server.ts
+src/routes/api/stream/+server.ts
+src/routes/api/summarize/+server.ts
+src/routes/api/summarize/analyze/+server.ts
+src/routes/api/summarize/synthesize/+server.ts
+src/routes/api/sync/documents/+server.ts
+src/routes/api/synthesis/evaluation/[id]/+server.ts
+src/routes/api/synthesis/generate/+server.ts
+src/routes/api/system/env/+server.ts
+src/routes/api/system/health/+server.ts
+src/routes/api/system/phase13/+server.ts
+src/routes/api/system/phase78/apply-patch/+server.ts
+src/routes/api/system/phase78/status/+server.ts
+src/routes/api/system/services/+server.ts
+src/routes/api/tags/[tagId]/+server.ts
+src/routes/api/tags/+server.ts
+src/routes/api/tags/search/+server.ts
+src/routes/api/tools/execute/+server.ts
+src/routes/api/topology/+server.ts
+src/routes/api/topology/stream/+server.ts
+src/routes/api/user/preferences/+server.ts
+src/routes/api/v1/agentic/+server.ts
+src/routes/api/v1/ai/cache-result/+server.ts
+src/routes/api/v1/ai/canvas-suggestions/+server.ts
+src/routes/api/v1/ai/generate-layout/+server.ts
+src/routes/api/v1/ai/summarize-async/+server.ts
+src/routes/api/v1/ai/summary-cache/+server.ts
+src/routes/api/v1/chat/messages/+server.ts
+src/routes/api/v1/chat/search/+server.ts
+src/routes/api/v1/chat/sessions/+server.ts
+src/routes/api/v1/evidence/advanced-analysis/+server.ts
+src/routes/api/v1/evidence/analyze/+server.ts
+src/routes/api/v1/evidence/canvas/+server.ts
+src/routes/api/v1/legal/compare-pdf/+server.ts
+src/routes/api/v1/redis/cache/+server.ts
+src/routes/api/v1/reports/chat-associations/+server.ts
+src/routes/api/v1/vector/store/+server.ts
+src/routes/api/vector-search/+server.ts
+src/routes/api/vision/analyze/+server.ts
+src/routes/api/web/crawl/+server.ts
+src/routes/api/web/search/+server.ts
+src/routes/api/websearch/+server.ts
+src/routes/api/whisper/transcribe/+server.ts
+src/routes/api/worker/autotag/trigger/+server.ts
+src/routes/api/yorha/analytics/+server.ts
+src/routes/api/yorha/cases/+server.ts
+src/routes/api/yorha/cluster-health/+server.ts
+src/routes/api/yorha/search/+server.ts
+src/routes/minio/[...path]/+server.ts
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app && find sveltekit-frontend/src -name "*.svelte.ts" | wc -l
+
+OUT
+37
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch\(['\`\"]/" src/routes src/lib --include="*.svelte" --include="*.ts" 2>/dev/null | grep -oE "/api/[a-zA-Z0-9/_\[\]-]*" | sort | uniq -c | sort -rn | head -100
+
+OUT
+Exit code 1
+/usr/bin/bash: -c: line 1: unexpected EOF while looking for matching ``'
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app/sveltekit-frontend && grep -rn "register\|registerComponent\|defineComponent" src/lib --include="*.ts" | head -20
+
+OUT
+src/lib/ai/base64-fp32-quantizer.ts:53:	registers: Map<string, number>;
+src/lib/ai/base64-fp32-quantizer.ts:77: registers: new Map<string, number>(),
+src/lib/components/ui/tabs/types.ts:48:	registerTab: (value: string) => void;
+src/lib/components/ui/wrappers/bits/bits-overrides.ts:26:export function registerOverride(name: string, impl: unknown): void {
+src/lib/data/route-groups-config.ts:92:      { id: 'core-register', label: 'Register', route: '/auth/register', icon: '📝', description: 'New user registration', status: 'active', tags: ['auth', 'register', 'signup'] },
+src/lib/data/route-groups-config.ts:153:  '/register': '/auth/register',
+src/lib/gpu/nes-memory-architecture.ts:367:	writePPU(register: number, value: number): void {
+src/lib/gpu/nes-memory-architecture.ts:368:		if (register === 0x2000) this.memoryState.ppu2000 = value;
+src/lib/gpu/nes-memory-architecture.ts:371:	readPPU(register: number): number {
+src/lib/gpu/nes-memory-architecture.ts:372:		if (register === 0x2002) return this.memoryState.ppu2002 | (this.memoryState.vblankActive ? 0x80 : 0);
+src/lib/machines/auth-machine.ts:84:const registerActor = fromPromise(async (ctx: any) => {
+src/lib/machines/auth-machine.ts:86:	const res = await fetch('/api/auth/register', {
+src/lib/machines/auth-machine.ts:161:				START_REGISTRATION: 'registering',
+src/lib/machines/auth-machine.ts:282:		registering: {
+src/lib/machines/auth-machine.ts:289:				src: registerActor,
+src/lib/schemas/auth.ts:15:export const registerSchema = z.object({
+src/lib/schemas/auth.ts:33:export type RegisterSchema = typeof registerSchema;
+src/lib/schemas.ts:9:export const registerSchema = z.object({
+src/lib/server/api-metadata-extractor.ts:138:    'acp/execute': 'ACP tool execution — run registered agentic tools',
+src/lib/server/api-metadata-extractor.ts:428:    register: 'Register',
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app/sveltekit-frontend && grep -rn "fetch.*\/api" src/routes --include="*.svelte" | wc -l
+
+OUT
+193
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch(" src/routes src/lib --include="*.svelte" --include="*.ts" 2>/dev/null | grep -oE "/api/[a-zA-Z0-9/_\[\]-]*" | sort | uniq -c | sort -rn | head -120
+
+OUT
+0
+Bash
+IN
+cd /c/Users/james/Videos/deeds-web-app/sveltekit-frontend && find src/routes -name "+layout.svelte" -o -name "+page.svelte" | head -5
+
+OUT
+src/routes/(app)/+layout.svelte
+src/routes/(app)/acp/+page.svelte
+src/routes/(app)/active-cases/+page.svelte
+src/routes/(app)/admin/ai-dashboard/+page.svelte
+src/routes/(app)/admin/ai-dashboard/lab/+page.svelte
+Read C:\Users\james\.claude\projects\c--Users-james-Videos-deeds-web-app\be3f5841-db4d-4f8a-b998-692640c16850\tool-results\toolu_011EDWJbbKiXhfUR6qpn12z.txt
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch" src/routes src/lib 2>/dev/null | grep "/api/" | wc -l
+
+OUT
+4865
+Read c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src\lib\index.ts
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rho "/api/[a-zA-Z0-9/_\[\]-]*" src/ 2>/dev/null | sort | uniq | wc -l
+
+OUT
+0
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "/api/" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | grep -E "fetch|import|POST|GET" | head -50
+
+OUT
+	// Hydrate client-side auth store from server layout data (avoids extra /api/auth/me fetch)
+			const res = await fetch('/api/acp/tools');
+			const res = await fetch('/api/acp/execute', {
+			const res = await fetch('/api/acp/execute', {
+			const response = await fetch('/api/orchestrator/analyze', {
+			const statsRes = await fetch('/api/ai/stats').catch(() => null);
+				fetch('/api/ai/stats').catch(() => null),
+				fetch('/api/ai/models').catch(() => null),
+			const res = await fetch('/api/rag/search', {
+			const valRes = await fetch('/api/rag/validate', {
+			const ansRes = await fetch('/api/rag/answer', {
+				fetch('/api/internal/error-brain/status').then(r => r.ok ? r.json() : null).catch(() => null),
+				fetch('/api/internal/error-brain/runs?limit=20').then(r => r.ok ? r.json() : null).catch(() => null)
+			const res = await fetch('/api/routes/metadata?includeArchived=true');
+			await fetch(`/api/routes/${encodeURIComponent(routeId)}/interactions`, {
+      fetch('/api/phase89/stats').catch(() => null),
+      fetch('/api/phase89/activity').catch(() => null)
+      const res = await fetch('/api/phase89/topology');
+      const res = await fetch('/api/phase89/fix', {
+				fetch('/api/cache/stats'),
+			const res = await fetch('/api/cache/invalidate', {
+	const res = await fetch('/api/cache/stats');
+			const res = await fetch(`/api/codebase-index/graph?${params}`);
+	const apiUrl = new URL('/api/codebase-index', url.origin); // Internal fetch or absolute if needed
+			const res = await fetch('/api/phase89/components');
+			const res = await fetch('/api/knowledge/search', {
+			const res = await fetch(`/api/phase89/related/${componentId}`);
+			const res = await fetch('/api/phase89/fix', {
+			const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: query }) });
+			const res = await fetch('/api/embed', {
+			const res = await fetch('/api/health');
+			const res = await fetch('/api/admin/seed-knowledge?action=index-pdfs');
+			const res = await fetch('/api/indexing', {
+			const res = await fetch('/api/indexing', {
+			const res = await fetch('/api/evidence?limit=50');
+			await fetch(`/api/evidence/${updated.id}`, {
+			await fetch(`/api/evidence/${id}`, { method: 'DELETE' });
+			const response = await fetch('/api/phase89/analyze');
+			const response = await fetch('/api/phase89/agentic-fix', {
+			const response = await fetch('/api/phase89/execute-command', {
+		const res = await fetch('/api/error-brain/diagnose', {
+		const res = await fetch('/api/error-brain/auto-patch', {
+ const res = await fetch('/api/internal/error-brain/status');
+ const res = await fetch('/api/internal/error-brain/runs');
+ const res = await fetch('/api/internal/error-brain/runs', {
+			const res = await fetch('/api/internal/error-brain/runs');
+			const res = await fetch('/api/internal/error-brain/runs', {
+			const response = await fetch('/api/admin/routes');
+		const response = await fetch(`/api/admin/knowledge?file=${encodeURIComponent(route.path)}`);
+			const response = await fetch('/api/admin/agent/fix', {
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && find src/routes/api -name "+server.ts" -type f | xargs wc -l | tail -1
+
+OUT
+  58531 total
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch\(" src/routes/api src/lib/server --include="*.ts" 2>/dev/null | grep -E "(localhost|127\.0\.0\.1|/api/)" | wc -l
+
+OUT
+0
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch" src/routes/api --include="*.ts" | head -50
+
+OUT
+src/routes/api/ace/ingest/+server.ts:    case 'fetching':
+src/routes/api/ace/ingest/+server.ts:    case 'fetching':
+src/routes/api/ace/ingest/+server.ts: * Ingest a web URL: fetch → strip HTML → chunk → embed → store in Qdrant legal_documents.
+src/routes/api/ace/ingest/+server.ts:  emit?.('fetching', 0.1, { url: input.url });
+src/routes/api/ace/ingest/+server.ts:  const fetchRes = await fetch(input.url, {
+src/routes/api/ace/ingest/+server.ts:  if (!fetchRes.ok) {
+src/routes/api/ace/ingest/+server.ts:    throw new Error(`Fetch failed: HTTP ${fetchRes.status}`);
+src/routes/api/ace/ingest/+server.ts:  const contentType = fetchRes.headers.get('content-type') ?? '';
+src/routes/api/ace/ingest/+server.ts:  const rawHtml = await fetchRes.text();
+src/routes/api/admin/agent/fix/+server.ts:		const searchResponse = await fetch(`${QDRANT_URL}/collections/phase76_knowledge_base/points/search`, {
+src/routes/api/admin/knowledge/+server.ts:		const response = await fetch(`${QDRANT_URL}/collections/phase76_knowledge_base/points/scroll`, {
+src/routes/api/admin/knowledge/+server.ts:		const errorResponse = await fetch(`${QDRANT_URL}/collections/phase89_error_chunks/points/scroll`, {
+src/routes/api/admin/routes/+server.ts:		const response = await fetch(`${QDRANT_URL}/collections/phase76_knowledge_base/points/scroll`, {
+src/routes/api/admin/seed-knowledge/+server.ts:export const GET: RequestHandler = async ({ url, fetch: svelteFetch }) => {
+src/routes/api/agents/chat/+server.ts:				const { fetchGlossaryMatches } = await import('$lib/server/ace/context-assembler.js');
+src/routes/api/agents/chat/+server.ts:					fetchGlossaryMatches(query),
+src/routes/api/agents/chat/+server.ts:				]) as Awaited<ReturnType<typeof fetchGlossaryMatches>>;
+src/routes/api/ai/models/+server.ts:		const res = await fetch(`${ollamaUrl}/api/tags`, {
+src/routes/api/ai/stats/+server.ts:		const res = await fetch(`${ollamaUrl}/api/tags`, {
+src/routes/api/ai/tensorrt/+server.ts:				const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+src/routes/api/ai/tensorrt/stream/+server.ts:			const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+src/routes/api/ai/tensorrt/vlm/+server.ts:    const res = await fetch(
+src/routes/api/ai/tensorrt/vlm/+server.ts:    await fetch(
+src/routes/api/ai/tensorrt/vlm/+server.ts:    const res = await fetch(`${getTritonUrl()}/v2/health/ready`, {
+src/routes/api/ai/tensorrt/vlm/+server.ts:      const ollamaRes = await fetch(`${ollamaUrl}/api/generate`, {
+src/routes/api/ai/tensorrt/vlm/+server.ts:    const res = await fetch(
+src/routes/api/ai/vector-search/+server.ts:export const POST: RequestHandler = async ({ request, fetch: kitFetch, locals }) => {
+src/routes/api/analysis/page-context/+server.ts:export const POST: RequestHandler = async ({ request, locals, url, fetch: skFetch }) => {
+src/routes/api/cache/stats/+server.ts:      error: 'Failed to fetch cache statistics',
+src/routes/api/canon/chunks/[chunkId]/+server.ts:		return json({ success: false, chunk: null, error: 'Failed to fetch chunk' }, { status: 500 });
+src/routes/api/cartridge/search/+server.ts:	// Build fetchRunes function that scrolls Qdrant
+src/routes/api/cartridge/search/+server.ts:	const fetchRunes = async (): Promise<RuneData[]> => {
+src/routes/api/cartridge/search/+server.ts:			fetchRunes,
+src/routes/api/cases/+server.ts:		console.error('Error fetching cases:', err);
+src/routes/api/cases/analytics/+server.ts:				console.warn('[cases-analytics] Topic distribution fetch failed:', topicError);
+src/routes/api/cases/analytics/+server.ts:				error: 'Analytics fetch failed'
+src/routes/api/cases/cluster/+server.ts:			const response = await fetch(
+src/routes/api/cases/cluster/+server.ts:				throw new Error(`Qdrant fetch failed: ${response.status}`);
+src/routes/api/cases/cluster/+server.ts:			console.error('[cases-cluster] Qdrant fetch error:', qdrantError);
+src/routes/api/cases/cluster/+server.ts:					error: 'Failed to fetch embeddings from Qdrant'
+src/routes/api/cases/[id]/citations/+server.ts:    console.error('Error fetching case citations:', err);
+src/routes/api/cases/[id]/laws/+server.ts:    console.error('Error fetching case laws:', err);
+src/routes/api/cases/[id]/similar/+server.ts:		// Evidence fetch failed — continue with case data only
+src/routes/api/cases/[id]/similar/+server.ts:	fetch('/api/graph/sync', {
+src/routes/api/cases/[id]/similar/+server.ts:		const res = await fetch(`${ENV.COUCHDB_URL}/ace_synthesis`, {
+src/routes/api/chat/replay/+server.ts: * fetch missed tokens from this endpoint to reconstruct the response.
+src/routes/api/chat/stream/+server.ts:          send('error', { message: 'Failed to fetch messages' });
+src/routes/api/citations/+server.ts:    console.error('Error fetching citations:', err);
+src/routes/api/citations/collections/+server.ts:		console.error('Error fetching collections:', err);
+src/routes/api/citations/collections/[collectionId]/citations/+server.ts:		console.error('Error fetching collection citations:', err);
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch(" src/routes/api src/lib/server --include="*.ts" 2>/dev/null | grep -oE "[\'\`]/api/[a-zA-Z0-9/_\[\]-]*" | tr -d "'\`" | sort | uniq
+
+OUT
+Exit code 2
+/usr/bin/bash: command substitution: line 1: unexpected EOF while looking for matching `''
+/usr/bin/bash: eval: line 1: unexpected EOF while looking for matching `"'
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "'/api/" src/routes/api src/lib/server --include="*.ts" 2>/dev/null | grep fetch | head -30
+
+OUT
+src/routes/api/cases/[id]/similar/+server.ts:	fetch('/api/graph/sync', {
+src/routes/api/codebase-index/route-components/+server.ts:	// fetch('/api/...') or fetch(`/api/...`)
+src/routes/api/error-brain/diagnose/+server.ts:		const res = await fetch(new URL('/api/codebase-index/graph?maxFiles=300', origin), {
+src/routes/api/evidence/analyze/+server.ts:	return fetch('/api/evidence/analysis', {
+src/routes/api/gpu-wasm-integration/+server.ts:		const res = await fetcher('/api/gpu/queue', { signal: AbortSignal.timeout(2000) });
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/glossary/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/statutes/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/precedents/search', {
+src/lib/server/ai/ollama-client.ts:      const result = await fetchFromOllama<OllamaGenerateResponse>('/api/generate', {
+src/lib/server/ai/ollama-client.ts:    return fetchFromOllama<OllamaEmbeddingResponse>('/api/embeddings', {
+src/lib/server/api-metadata-extractor.ts: * Extract API paths consumed by a page/server file (fetch('/api/...') patterns)
+src/lib/server/api-metadata-extractor.ts:  // Match fetch('/api/...'), fetch("/api/..."), fetch(`/api/...`)
+src/lib/server/config/ollama.ts:    const response = await fetch(getOllamaUrl('/api/embeddings'), {
+src/lib/server/config/ollama.ts:    const response = await fetch(getOllamaUrl('/api/generate'), {
+src/lib/server/config/ollama.ts:    const response = await fetch(getOllamaUrl('/api/generate'), {
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch(\"/api/" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | sed 's/.*fetch("\([^"]*\).*/\1/' | sort | uniq > /tmp/fetched_routes.txt && wc -l /tmp/fetched_routes.txt
+
+OUT
+3 /tmp/fetched_routes.txt
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | grep -E "(fetch\(|POST|GET)" | grep "/api/" | head -100 | tail -50
+
+OUT
+			const res = await fetch('/api/system/phase78/apply-patch', {
+			const res = await fetch('/api/phase89/vector-search', {
+			const res = await fetch('/api/phase89/clusters');
+			const res = await fetch('/api/phase89/topology');
+			const res = await fetch('/api/phase89/pipeline', {
+						const statusRes = await fetch('/api/phase89/status');
+			const res = await fetch('/api/phase89/fix', {
+			const res = await fetch('/api/admin/qlora', { signal: AbortSignal.timeout(5000) });
+				fetch('/api/gpu/lease', { signal: AbortSignal.timeout(3000) }),
+				fetch('/api/gpu/queue', { signal: AbortSignal.timeout(3000) })
+			const res = await fetch('/api/admin/qlora', {
+			const response = await fetch('/api/topology');
+			const res = await fetch(`${origin}/api/evidence/search`, {
+			const res = await fetch(`${ollamaUrl}/api/generate`, {
+		const res = await fetch(`/api/ace/status?jobId=${encodeURIComponent(jobId)}`);
+			const res = await fetch('/api/ace/ingest', {
+			const res = await fetch('/api/ace/ingest', {
+ * Replaces client-side fetch('/api/cases')
+			const response = await fetch('/api/orchestrator/analyze', {
+    res = await fetch(`/api/cases/${params.id}`);
+     const res = await fetch('/api/rag/search', {
+     const res = await fetch('/api/evidence/search', {
+     const res = await fetch('/api/knowledge/search', {
+ const response = await fetch(`/api/cases/${caseId}`);
+     const response = await fetch(`/api/cases/${caseId}/similar`);
+ const response = await fetch(`/api/cases/${caseId}/evidence`);
+      const response = await fetch(`/api/cases/${caseId}/canvas`);
+    const response = await fetch(`/api/cases/${caseId}/canvas`, {
+     const response = await fetch(`/api/cases/${caseId}/citations`);
+     const response = await fetch(`/api/cases/${caseId}/laws`);
+ const response = await fetch('/api/evidence/upload', {
+ const response = await fetch(`/api/evidence/${selectedEvidence.id}/suggest-summary`, {
+ const response = await fetch(`/api/evidence/summary/${suggestedSummary.summaryId}/approve`, {
+ const response = await fetch(`/api/evidence/${selectedEvidence.id}/approve`, {
+ const response = await fetch(`/api/cases/${caseId}/export/pdf`, {
+			const res = await fetch(`/api/chat/stream?${params}`);
+			const res = await fetch(`/api/evidence/${evidenceId}/key-points`, {
+			const res = await fetch(`/api/cases/${caseId}/connections`, {
+			await fetch(`/api/cases/${caseId}/connections`, {
+			const res = await fetch(`/api/cases/${caseId}/timeline?limit=30`);
+			const response = await fetch(`/api/cases/${caseId}/chat`, {
+					const response = await fetch('/api/whisper/transcribe', {
+			const res = await fetch(`/api/cases/${caseId}/canvas`, {
+      const res = await fetch(`${origin}/api/evidence/upload`, {
+			const res = await fetch(`/api/persons?caseId=${id}`);
+			const res = await fetch('/api/persons', {
+			const res = await fetch('/api/reports/generate', {
+				const res = await fetch('/api/reports/save', {
+				const res = await fetch('/api/reports', {
+			const res = await fetch(`/api/reports/${selectedReport.id}/export?format=${format}`);
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && cat <<'EOF' > /tmp/audit.sh
+#!/bin/bash
+
+# Get all +server.ts files
+echo "=== TOTAL +server.ts FILES ==="
+SERVER_COUNT=$(find src/routes/api -name "+server.ts" -type f | wc -l)
+echo "Total: $SERVER_COUNT"
+
+# Extract unique routes from routes directory structure
+echo ""
+echo "=== API ROUTES FROM DIRECTORY STRUCTURE ==="
+find src/routes/api -name "+server.ts" | sed 's|src/routes||' | sed 's|/+server.ts||' | sort | wc -l
+
+# Get unique fetch calls from client code
+echo ""
+echo "=== UNIQUE API ROUTES CALLED VIA fetch() ==="
+grep -rh "fetch.*['\`]/api/" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | \
+  sed "s/.*fetch(\s*['\`\`]\([^'\"]\+\)['\`\`].*/\1/" | \
+  sed "s/.*fetch(\s*\`\([^`]\+\)\`.*/\1/" | \
+  sed "s/.*\`\${[^}]*}\([^`]*\)\`.*/\1/" | \
+  grep "^/api/" | \
+  sort | uniq | wc -l
+
+# Show internal API-to-API calls
+echo ""
+echo "=== INTERNAL API-TO-API FETCH CALLS (first 20) ==="
+grep -r "fetch.*'/api/" src/routes/api --include="*.ts" 2>/dev/null | grep -E "(fetch|POST|GET)" | head -20
+
+EOF
+chmod +x /tmp/audit.sh
+/tmp/audit.sh
+
+OUT
+=== TOTAL +server.ts FILES ===
+Total: 414
+
+=== API ROUTES FROM DIRECTORY STRUCTURE ===
+414
+
+=== UNIQUE API ROUTES CALLED VIA fetch() ===
+0
+
+=== INTERNAL API-TO-API FETCH CALLS (first 20) ===
+src/routes/api/cases/[id]/similar/+server.ts:	fetch('/api/graph/sync', {
+src/routes/api/codebase-index/route-components/+server.ts:	// fetch('/api/...') or fetch(`/api/...`)
+src/routes/api/error-brain/diagnose/+server.ts:		const res = await fetch(new URL('/api/codebase-index/graph?maxFiles=300', origin), {
+src/routes/api/evidence/analyze/+server.ts:	return fetch('/api/evidence/analysis', {
+src/routes/api/gpu-wasm-integration/+server.ts:		const res = await fetcher('/api/gpu/queue', { signal: AbortSignal.timeout(2000) });
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/glossary/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/statutes/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/precedents/search', {
+/tmp/audit.sh: line 19: .*/1/ |   sed s/.*: No such file or directory
+/tmp/audit.sh: line 19: ]\+\)`.*/\1/" |   sed "s/.*`${[^}]*}\([^: bad substitution
+sed: -e expression #1, char 29: unterminated `s' command
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && \
+echo "=== TOTAL +server.ts FILES ===" && \
+find src/routes/api -name "+server.ts" -type f | wc -l && \
+echo "" && \
+echo "=== INTERNAL API-TO-API CALLS ===" && \
+grep -r "fetch.*api/" src/routes/api --include="*.ts" 2>/dev/null | grep -v "^[^:]*:[^:]*//\|ollamaUrl\|QDRANT_URL\|TRITON\|FASTAPI\|ORCHESTRATOR" | wc -l
+
+OUT
+Exit code 127
+/usr/bin/bash: line 1: : command not found
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && find src/routes/api -name "+server.ts" -type f | wc -l
+
+OUT
+414
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch.*'/api/" src/routes/api --include="*.ts" 2>/dev/null
+
+OUT
+src/routes/api/cases/[id]/similar/+server.ts:	fetch('/api/graph/sync', {
+src/routes/api/codebase-index/route-components/+server.ts:	// fetch('/api/...') or fetch(`/api/...`)
+src/routes/api/error-brain/diagnose/+server.ts:		const res = await fetch(new URL('/api/codebase-index/graph?maxFiles=300', origin), {
+src/routes/api/evidence/analyze/+server.ts:	return fetch('/api/evidence/analysis', {
+src/routes/api/gpu-wasm-integration/+server.ts:		const res = await fetcher('/api/gpu/queue', { signal: AbortSignal.timeout(2000) });
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/glossary/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/statutes/search', {
+src/routes/api/knowledge/search/+server.ts:      fetch('/api/precedents/search', {
+Grep "fetch\(['\"`]/api/" (in c:\Users\james\Videos\deeds-web-app\sveltekit-frontend\src, type: svelte)
+17 lines of output
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -r "fetch.*'/api/" src/auth-store.svelte.ts src/lib --include="*.ts" 2>/dev/null | head -30
+
+OUT
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/me', { credentials: 'include' });
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/login', {
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/logout', {
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/register', {
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/profile', {
+src/auth-store.svelte.ts:      const response = await fetch('/api/auth/session', { credentials: 'include' });
+src/lib/ai/citation-cache.ts:			const res = await fetch('/api/citations?limit=50', {
+src/lib/ai/citation-cache.ts:				const res = await fetch('/api/rag/search', {
+src/lib/ai/citation-cache.ts:					const response = await fetch('/api/citations', {
+src/lib/ai/client-router.ts:		const res = await fetch('/api/health/capabilities', {
+src/lib/cache/cache-invalidation.ts:			await fetch('/api/cache/invalidate', {
+src/lib/cache/cache-invalidation.ts:			await fetch('/api/cache/invalidate', {
+src/lib/cache/cache-invalidation.ts:			const res = await fetch('/api/cache/stats');
+src/lib/cache/__tests__/cache.test.ts:		expect(global.fetch).toHaveBeenCalledWith('/api/test');
+src/lib/client/search-client.ts:		await fetch('/api/analytics/search', {
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/login', {
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/register', {
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/logout', {
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/me', { credentials: 'include' });
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/me', {
+src/lib/machines/auth-machine.ts:	const res = await fetch('/api/auth/reset-password', {
+src/lib/machines/document-upload-machine.ts:        const response = await fetch('/api/evidence/upload', {
+src/lib/machines/evidence-analysis-machine.ts:	const res = await fetch('/api/evidence/upload', {
+src/lib/machines/evidence-lifecycle-machine.ts:		const res = await fetch('/api/evidence/upload', {
+src/lib/machines/evidence-lifecycle-machine.ts:		const res = await fetch('/api/rag/search', {
+src/lib/machines/evidence-lifecycle-machine.ts:		const res = await fetch('/api/sse/chat', {
+src/lib/machines/evidence-processing-machine.ts:				const response = await fetch('/api/glyph/generate', {
+src/lib/machines/retrieval-machine.ts:		const res = await fetch('/api/codebase/recall', {
+src/lib/machines/retrieval-machine.ts:	const res = await fetch('/api/codebase/rerank', {
+src/lib/models/ChatSession.svelte.ts:    const response = await fetch('/api/ace/ingest', {
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch(" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | grep -o "/api/[a-z0-9/_\[\]-]*" | sort | uniq | head -150
+
+OUT
+0
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && grep -rh "fetch.*api" src/routes src/lib --include="*.ts" --include="*.svelte" 2>/dev/null | head -200 | tail -100
+
+OUT
+				const res = await fetch('/api/reports', {
+			const res = await fetch(`/api/reports/${selectedReport.id}/export?format=${format}`);
+			const res = await fetch(`/api/reports/${selectedReport.id}/publish`, {
+			const res = await fetch('/api/reports', {
+      const res = await fetch(`/api/citations/export/${format}`);
+      const res = await fetch(`/api/citations/${citationId}/tags`);
+      await fetch(`/api/citations/${citationId}/tags`, {
+      await fetch(`/api/citations/${citationId}/tags`, {
+      fetch('/api/glossary/search', { method: 'POST', headers, body }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+      fetch('/api/statutes/search', { method: 'POST', headers, body }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+      fetch('/api/precedents/search', { method: 'POST', headers, body }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+      const res = await fetch('/api/citations/collections');
+      await fetch(`/api/citations/collections/${collectionId}/citations`, {
+      const response = await fetch(`/api/citations?${params}`);
+	const res = await fetch(`/api/library/resolve-citation?q=${encodeURIComponent(label)}`);
+			const response = await fetch('/api/codebase-index/stats');
+			const clustersResponse = await fetch('/api/codebase-index/clusters? limit=5');
+			await fetch('/api/codebase-index/reindex', { method: 'POST' });
+			const response = await fetch('/api/codebase-index/graph');
+			const response = await fetch(`${apiBase}/clusters?${params}`);
+			const response = await fetch(`${apiBase}/dependencies?limit=${limit}`);
+			const response = await fetch(`${apiBase}/error-propagation?limit=15`);
+			const response = await fetch(`${apiBase}/summaries?${params}`);
+      const res = await fetch('/api/cases', {
+        fetch('/api/glossary/search', {
+        fetch('/api/statutes/search', {
+        fetch('/api/precedents/search', {
+        fetch('/api/cases?limit=10', { signal }),
+        fetch('/api/dashboard/stats', { signal }).catch(() => null),
+			const res = await fetch('/api/phase89/status');
+			const res = await fetch('/api/phase89/clusters');
+			const res = await fetch('/api/phase89/graph');
+			const res = await fetch('/api/phase89/search', {
+			const res = await fetch('/api/phase89/pipeline', {
+			const res = await fetch('/api/phase89/analysis', { method: 'POST' });
+			const res = await fetch('/api/tools/execute');
+			const res = await fetch('/api/tools/execute', {
+			const res = await fetch('/api/phase89/clusters');
+			const res = await fetch('/api/phase89/analyze', {
+			const res = await fetch('/api/phase89/agentic-fix', {
+			const res = await fetch(`/api/simulation/${sessionId}`, {
+			const res = await fetch('/api/simulation');
+			const res = await fetch('/api/simulation', {
+		const res = await fetch(`/api/simulation/${sid}`);
+			const res = await fetch(`/api/simulation/${sessionId}`, {
+		try { await fetch(`/api/simulation/${sessionId}`, { method: 'DELETE' }); } catch { /* best effort */ }
+				const res = await fetch('/api/investigate/suggest', {
+			const res = await fetch('/api/cartridge/export', {
+			const res = await fetch('/api/cartridge/stats');
+			const res = await fetch('/api/evidence/search', {
+			await fetch('/api/citations/saved', {
+			const response = await fetch('/api/v1/evidence/analyze', {
+				const response = await fetch('/api/evidence/upload', {
+			const response = await fetch('/api/evidence/upload', {
+		const res = await fetch(`/api/fictional-cases?${params.toString()}`);
+		const res = await fetch(`/api/fictional-cases/${params.id}`);
+		const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&type=all&limit=20`);
+		const res = await fetch('/api/library/search', {
+		const res = await fetch('/api/evidence/search', {
+		const res = await fetch('/api/rag/search', {
+		const res = await fetch('/api/precedents/search', {
+		const res = await fetch('/api/glossary/search', {
+		const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&type=reports&limit=20`);
+		const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&type=messages&limit=20`);
+			const response = await fetch('/api/indexing');
+			const response = await fetch('/api/indexing?action=codebase', {
+			const response = await fetch('/api/indexing?action=errors', {
+			const response = await fetch(`/api/indexing?action=${action}`, {
+				fetch('/api/statutes/search', {
+				fetch('/api/precedents/search', {
+			const res = await fetch('/api/glossary/search', {
+			const res = await fetch(`/api/statutes/${statute.id}/summary`, { method: 'POST' });
+			await fetch('/api/citations/saved', {
+			const res = await fetch(`/api/statutes/${statute.id}/summary`, { method: 'POST' });
+			const res = await fetch('/api/glossary/search', {
+			const res = await fetch('/api/library/upload', { method: 'POST', body: fd });
+			const res = await fetch('/api/library/upload', { method: 'POST', body: fd });
+			const res = await fetch('/api/library/corpus/constitutions', {
+			const res = await fetch('/api/library/corpus/constitutions', {
+			const res = await fetch('/api/glossary/search', {
+			const res = await fetch('/api/library/search', {
+			const res = await fetch('/api/library/search', {
+			const res = await fetch(`/api/persons-of-interest/${poi.id}/similar`);
+											const res = await fetch(`/api/persons-of-interest/${editingPoi.id}`, {
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/similar`);
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/risk`);
+			const res = await fetch('/api/persons-of-interest/search', {
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/photos`, {
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/face-match`, {
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/timeline`);
+			const res = await fetch(`/api/persons-of-interest/${data.poi.id}/timeline`, {
+			const res = await fetch('/api/recommendations');
+			const res = await fetch('/api/reports', { credentials: 'include' });
+				const res = await fetch('/api/reports/generate-from-template', {
+				const res = await fetch('/api/reports', {
+			const res = await fetch(`/api/reports?ids=${reportId}`, { credentials: 'include' });
+			const res = await fetch(`/api/reports/${reportId}/export?format=${format}`);
+			const res = await fetch(`/api/reports?ids=${reportId}`, { credentials: 'include' });
+			const res = await fetch(`/api/reports`, {
+			const res = await fetch(`/api/reports/${reportId}/publish`, { method: 'POST', credentials: 'include' });
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && \
+echo "AUDIT SUMMARY:" && \
+echo "Total +server.ts files:" && \
+find src/routes/api -name "+server.ts" | wc -l && \
+echo "" && \
+echo "Internal API-to-API fetch() calls found:" && \
+grep -r "fetch.*'/api/" src/routes/api --include="*.ts" 2>/dev/null | wc -l && \
+echo "" && \
+echo "Unique internal API calls:" && \
+grep -r "fetch.*'/api/" src/routes/api --include="*.ts" 2>/dev/null | sed "s/.*fetch(['\`]*\([^'\"]\+\).*/\1/" | sort | uniq
+
+OUT
+Exit code 1
+/usr/bin/bash: -c: line 10: unexpected EOF while looking for matching ``'
+Bash
+IN
+cd "c:\Users\james\Videos\deeds-web-app\sveltekit-frontend" && find src/routes/api -name "+server.ts" | wc -l
+
+OUT
+414
