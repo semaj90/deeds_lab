@@ -1,0 +1,34 @@
+# LLMS.md — `deeds_labs/lib-dead-directories/moogle/moogle`
+
+# LLMS.md — `deeds_labs/lib-dead-directories/moogle/moogle`
+
+# LLMS.md — `deeds_labs/lib-dead-directories/moogle/moogle`
+
+# LLMS.md — `deeds_labs/lib-dead-directories/moogle/moogle`
+
+<!-- LLMS-GEN v1 · do not edit below this line -->
+<!-- generated: 2026-05-15T17:39:23.555Z · llms.md spec · regen: npm run llms:write -->
+
+> Directory: deeds_labs/lib-dead-directories/moogle/moogle
+
+## Snapshot
+
+- 3 file(s), 0 handler(s)
+- Files: 3
+
+## Top Files
+
+- `stage6-production-orchestrator.ts`
+- `stage6-production-orchestrator.ts`
+- `stage6-production-orchestrator.ts`
+
+## Agentic tool-calling — quick ACE hits
+
+- `read_file({ filePath: "deeds_labs/lib-dead-directories/moogle/moogle/<file>" })`
+- `verify_fix({ filePath: "deeds_labs/lib-dead-directories/moogle/moogle/+server.ts" })`
+
+## How to use this file
+
+Agents automatically pick up the nearest `LLMS.md` when editing. The root `LLMS.md` provides repo-wide rules.
+
+Run `npm run llms:write` to regenerate.
